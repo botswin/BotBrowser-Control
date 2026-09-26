@@ -8,8 +8,6 @@ test('profile CRUD persists through store', async () => { const r = await page.e
 test('settings and proxy validation IPC are observable', async () => { const r = await page.evaluate(async () => { const old = await window.api.settings.get(); await window.api.settings.set({ defaultProxy: 'http://127.0.0.1:9' }); const s = await window.api.settings.get(); let error = ''; try { await window.api.proxy.checkIp('not-a-proxy'); } catch (e) { error = e.message; } await window.api.settings.set({ defaultProxy: old.defaultProxy }); return { s, error }; }); expect(r.s.defaultProxy).toBe('http://127.0.0.1:9'); expect(r.error).toMatch(/invalid proxy|ENOTFOUND|proxy/i); });
 test('kernel cache and installed-list boundaries are readable without real kernel', async () => { const r = await page.evaluate(async () => ({ cached: await window.api.kernel.getCachedReleases(), installed: await window.api.kernel.listInstalled(), dir: await window.api.kernel.getDir() })); expect(Array.isArray(r.cached) || r.cached === null).toBeTruthy(); expect(Array.isArray(r.installed)).toBeTruthy(); expect(r.dir).toBeTruthy(); });
 test('launch boundary reports missing BotBrowser executable', async () => { const error = await page.evaluate(async () => { const p = await window.api.profiles.create({ name: 'Launch boundary', cookies: '[{"name":"sid","value":"fixture"}]' }); let e = ''; try { await window.api.browser.launch(p.id); } catch (x) { e = x.message; } await window.api.profiles.delete(p.id); return e; }); expect(error).toMatch(/executable not found/i); });
-test('update check failure or result is observable', async () => { const r = await page.evaluate(async () => { try { return { ok: true, value: await window.api.app.checkForUpdates() }; } catch (e) { return { ok: false, error: e.message }; } }); expect(r.ok === true || typeof r.error === 'string').toBeTruthy(); });
-
 test('profile editor filter trims, ignores case, matches labels and ids, clears, and shows no match', async () => {
   await page.locator('[data-action="new-profile"]').first().click();
   const filter = page.locator('#editor-nav-search');
@@ -104,5 +102,4 @@ test('process exit events report only non-zero exit codes as errors', () => {
     stopped: { profileId: 'profile-1', code: null, stderr: undefined }
   });
 });
-
 

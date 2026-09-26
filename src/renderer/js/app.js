@@ -578,7 +578,7 @@
     // Find the proxy-host-text span and replace it with an input in-place
     const cell = document.getElementById(`proxy-cell-${profileId}`);
     if (!cell) return;
-    const hostSpan = cell.querySelector('.proxy-host-text');
+    const hostSpan = cell.querySelector('.proxy-host-text, .proxy-none-btn');
     if (!hostSpan) return;
 
     const inp = document.createElement('input');

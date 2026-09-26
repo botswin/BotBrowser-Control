@@ -9,6 +9,8 @@ const http = require('http');
 const Store = require('electron-store');
 const { v4: uuidv4 } = require('uuid');
 const { getProcessExitEvents } = require('./process-exit');
+const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
+const { isNewerVersion } = require('./version');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -51,6 +53,7 @@ const store = new Store({
 
 // ─── Runtime state ────────────────────────────────────────────────────────────
 const runningInstances = new Map();
+const kernelDownloads = new Map();
 const tempFiles = new Map();
 let mainWindow = null;
 
@@ -307,7 +310,10 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
 
   const args = buildLaunchArgs(profile, userDataDir, botProfileArg);
 
-  const proc = spawn(botBrowserPath, args, {
+  const spawnArgs = process.env.BOTBROWSER_TEST_HOLD_MS && botBrowserPath === process.execPath
+    ? ['-e', `setTimeout(() => {}, ${Number(process.env.BOTBROWSER_TEST_HOLD_MS) || 30000})`, ...args]
+    : args;
+  const proc = spawn(botBrowserPath, spawnArgs, {
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
     ...(IS_WIN ? { shell: false } : {})
@@ -678,9 +684,18 @@ function doHttpProxyIpCheck(proxy, targetHost, targetPath, targetPort) {
 
 // ─── IPC: Update Checker ──────────────────────────────────────────────────────
 
-const BOTBROWSER_RELEASES_API = 'https://api.github.com/repos/botswin/BotBrowser/releases/latest';
-const CONTROL_RELEASES_API    = 'https://api.github.com/repos/tombaki/BotBrowser/releases/latest';
-const CONTROL_VERSION         = '1.2.1';
+function getReleaseApiUrl(repository, fallback) {
+  try {
+    const fixtureBase = new URL(process.env.BOTBROWSER_TEST_RELEASES_API_BASE);
+    if (fixtureBase.protocol === 'http:' && fixtureBase.hostname === '127.0.0.1') {
+      return new URL(`/repos/${repository}/releases/latest`, fixtureBase).toString();
+    }
+  } catch {}
+  return fallback;
+}
+
+const BOTBROWSER_RELEASES_API = getReleaseApiUrl('botswin/BotBrowser', 'https://api.github.com/repos/botswin/BotBrowser/releases/latest');
+const CONTROL_RELEASES_API    = getReleaseApiUrl('tombaki/BotBrowser', 'https://api.github.com/repos/tombaki/BotBrowser/releases/latest');
 
 ipcMain.handle('app:checkForUpdates', async () => {
   const results = { kernel: null, control: null };
@@ -710,7 +725,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
         name: release.name || tag,
         publishedAt: release.published_at,
         url: release.html_url,
-        isNewer: remoteVer !== CONTROL_VERSION && remoteVer > CONTROL_VERSION,
+        isNewer: isNewerVersion(remoteVer, app.getVersion()),
       };
     }
   } catch {}
@@ -738,7 +753,9 @@ const KERNEL_GITHUB_API = 'https://api.github.com/repos/botswin/BotBrowser/relea
 function httpsGet(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) { reject(new Error('Too many redirects')); return; }
-    const req = https.get(url, {
+    const parsedUrl = new URL(url);
+    const transport = parsedUrl.protocol === 'http:' && parsedUrl.hostname === '127.0.0.1' ? http : https;
+    const req = transport.get(parsedUrl, {
       headers: {
         'User-Agent': 'BotBrowserControl/1.0',
         'Accept': 'application/vnd.github+json',
@@ -820,6 +837,19 @@ ipcMain.handle('kernel:delete', (_, version) => {
   return false;
 });
 
+ipcMain.handle('kernel:cancelDownload', async (_, version) => {
+  const active = kernelDownloads.get(version);
+  if (!active) return false;
+  active.cancelled = true;
+  active.request?.destroy(new Error('Download cancelled'));
+  active.response?.destroy();
+  active.fileStream?.destroy();
+  if (active.fileStream && !active.fileStream.closed) {
+    await new Promise(resolve => active.fileStream.once('close', resolve));
+  }
+  return true;
+});
+
 /**
  * Download a kernel asset, then auto-install it.
  * - macOS .dmg: mount with hdiutil, copy .app to /Applications (xattr -rd + codesign -f)
@@ -836,23 +866,38 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
 
   // Download first
   await new Promise((resolve, reject) => {
+    const active = { request: null, response: null, fileStream: null, cancelled: false };
+    kernelDownloads.set(version, active);
+    const cleanup = () => {
+      try { fs.rmSync(versionDir, { recursive: true, force: true }); } catch {
+        setTimeout(() => { try { fs.rmSync(versionDir, { recursive: true, force: true }); } catch {} }, 25);
+      }
+    };
+    const fail = (error) => {
+      kernelDownloads.delete(version);
+      if (active.fileStream && !active.fileStream.closed) active.fileStream.once('close', cleanup);
+      else cleanup();
+      reject(error);
+    };
     function doDownload(url, redirectCount) {
-      if (redirectCount > 5) { reject(new Error('Too many redirects')); return; }
+      if (redirectCount > 5) { fail(new Error('Too many redirects')); return; }
       const parsedUrl = new URL(url);
       const protocol = parsedUrl.protocol === 'https:' ? https : http;
       const req = protocol.get(url, { headers: { 'User-Agent': 'BotBrowserControl/1.0' } }, (res) => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
           const location = res.headers.location;
           res.resume();
-          if (!location) { reject(new Error('Redirect without location')); return; }
+          if (!location) { fail(new Error('Redirect without location')); return; }
           doDownload(location, redirectCount + 1);
           return;
         }
-        if (res.statusCode !== 200) { reject(new Error(`Download failed: HTTP ${res.statusCode}`)); return; }
+        if (res.statusCode !== 200) { fail(new Error(`Download failed: HTTP ${res.statusCode}`)); return; }
+        active.response = res;
 
         const total = parseInt(res.headers['content-length'] || '0', 10);
         let downloaded = 0;
         const fileStream = fs.createWriteStream(destPath);
+        active.fileStream = fileStream;
 
         res.on('data', (chunk) => {
           downloaded += chunk.length;
@@ -863,11 +908,12 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
         });
 
         res.pipe(fileStream);
-        fileStream.on('finish', () => { fileStream.close(resolve); });
-        fileStream.on('error', reject);
+        fileStream.on('finish', () => { kernelDownloads.delete(version); fileStream.close(resolve); });
+        fileStream.on('error', error => fail(active.cancelled ? new Error('Download cancelled') : error));
       });
-      req.on('error', reject);
-      req.setTimeout(180000, () => { req.destroy(); reject(new Error('Download timeout')); });
+      active.request = req;
+      req.on('error', error => fail(active.cancelled ? new Error('Download cancelled') : error));
+      req.setTimeout(180000, () => { req.destroy(); fail(new Error('Download timeout')); });
     }
     doDownload(downloadUrl, 0);
   });
@@ -1255,105 +1301,9 @@ function resolveKernel(profile) {
 // ─── CDP Cookie Save ──────────────────────────────────────────────────────────
 
 async function saveCookiesViaCDP(profileId, port, userDataDir) {
-  const cookies = await fetchCookiesViaCDP(port);
-  if (!Array.isArray(cookies)) return;
-
-  const savePath = path.join(userDataDir, 'saved-cookies.json');
-  fs.mkdirSync(userDataDir, { recursive: true });
-  fs.writeFileSync(savePath, JSON.stringify(cookies, null, 2), 'utf8');
-
-  const profiles = store.get('profiles', []);
-  const idx = profiles.findIndex(p => p.id === profileId);
-  if (idx !== -1) {
-    profiles[idx].cookieCount = cookies.length;
-    profiles[idx].cookiesSavedAt = new Date().toISOString();
-    profiles[idx].savedCookiesPath = savePath;
-    store.set('profiles', profiles);
-  }
-
-  mainWindow?.webContents.send('profile:cookiesSaved', { profileId, count: cookies.length, path: savePath });
-}
-
-function fetchCookiesViaCDP(port) {
-  return new Promise((resolve, reject) => {
-    const crypto = require('crypto');
-    const timeout = setTimeout(() => reject(new Error('CDP timeout')), 5000);
-
-    const httpClient = net.createConnection({ port, host: '127.0.0.1' }, () => {
-      httpClient.write('GET /json/list HTTP/1.1\r\nHost: 127.0.0.1:' + port + '\r\nConnection: close\r\n\r\n');
-    });
-    let httpData = '';
-    httpClient.on('data', d => { httpData += d.toString(); });
-    httpClient.on('end', () => {
-      try {
-        const body = httpData.slice(httpData.indexOf('\r\n\r\n') + 4);
-        const tabs = JSON.parse(body);
-        const tab = tabs.find(t => t.type === 'page') || tabs[0];
-        if (!tab?.webSocketDebuggerUrl) { clearTimeout(timeout); reject(new Error('No debuggable tab')); return; }
-        const wsPath = tab.webSocketDebuggerUrl.replace(/^ws:\/\/[^/]+/, '');
-
-        const wsClient = net.createConnection({ port, host: '127.0.0.1' }, () => {
-          const key = crypto.randomBytes(16).toString('base64');
-          wsClient.write('GET ' + wsPath + ' HTTP/1.1\r\nHost: 127.0.0.1:' + port + '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ' + key + '\r\nSec-WebSocket-Version: 13\r\n\r\n');
-        });
-
-        let wsHandshakeDone = false, wsBuffer = Buffer.alloc(0);
-
-        function sendWsFrame(payload) {
-          const data = Buffer.from(JSON.stringify(payload));
-          const maskKey = crypto.randomBytes(4);
-          const masked = Buffer.alloc(data.length);
-          for (let i = 0; i < data.length; i++) masked[i] = data[i] ^ maskKey[i % 4];
-          let header;
-          if (data.length < 126) { header = Buffer.alloc(6); header[0] = 0x81; header[1] = 0x80 | data.length; maskKey.copy(header, 2); }
-          else if (data.length < 65536) { header = Buffer.alloc(8); header[0] = 0x81; header[1] = 0x80 | 126; header.writeUInt16BE(data.length, 2); maskKey.copy(header, 4); }
-          else { header = Buffer.alloc(14); header[0] = 0x81; header[1] = 0x80 | 127; header.writeBigUInt64BE(BigInt(data.length), 2); maskKey.copy(header, 10); }
-          wsClient.write(Buffer.concat([header, masked]));
-        }
-
-        function parseWsFrames(buf) {
-          const messages = []; let offset = 0;
-          while (offset + 2 <= buf.length) {
-            const b1 = buf[offset + 1]; const isMasked = (b1 & 0x80) !== 0;
-            let payloadLen = b1 & 0x7f, headerLen = 2;
-            if (payloadLen === 126) { if (offset + 4 > buf.length) break; payloadLen = buf.readUInt16BE(offset + 2); headerLen = 4; }
-            else if (payloadLen === 127) { if (offset + 10 > buf.length) break; payloadLen = Number(buf.readBigUInt64BE(offset + 2)); headerLen = 10; }
-            const maskLen = isMasked ? 4 : 0;
-            const frameEnd = offset + headerLen + maskLen + payloadLen;
-            if (frameEnd > buf.length) break;
-            let payload = buf.slice(offset + headerLen + maskLen, frameEnd);
-            if (isMasked) { const mask = buf.slice(offset + headerLen, offset + headerLen + 4); payload = Buffer.from(payload); for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4]; }
-            messages.push(payload.toString('utf8')); offset = frameEnd;
-          }
-          return { messages, remaining: buf.slice(offset) };
-        }
-
-        wsClient.on('data', (chunk) => {
-          if (!wsHandshakeDone) {
-            if (chunk.indexOf('\r\n\r\n') !== -1) {
-              wsHandshakeDone = true;
-              const rest = chunk.slice(chunk.indexOf('\r\n\r\n') + 4);
-              if (rest.length > 0) wsBuffer = Buffer.concat([wsBuffer, rest]);
-              sendWsFrame({ id: 1, method: 'Network.getAllCookies', params: {} });
-            }
-            return;
-          }
-          wsBuffer = Buffer.concat([wsBuffer, chunk]);
-          const { messages, remaining } = parseWsFrames(wsBuffer);
-          wsBuffer = remaining;
-          for (const msg of messages) {
-            try {
-              const parsed = JSON.parse(msg);
-              if (parsed.id === 1 && parsed.result?.cookies) {
-                clearTimeout(timeout); wsClient.destroy(); resolve(parsed.result.cookies); return;
-              }
-            } catch {}
-          }
-        });
-        wsClient.on('error', e => { clearTimeout(timeout); reject(e); });
-      } catch (e) { clearTimeout(timeout); reject(e); }
-    });
-    httpClient.on('error', e => { clearTimeout(timeout); reject(e); });
+  return saveCookieData(profileId, port, userDataDir, {
+    store,
+    send: (channel, payload) => mainWindow?.webContents.send(channel, payload)
   });
 }
 

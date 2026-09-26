@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('api', {
     listInstalled: () => ipcRenderer.invoke('kernel:listInstalled'),
     delete: (version) => ipcRenderer.invoke('kernel:delete', version),
     download: (opts) => ipcRenderer.invoke('kernel:download', opts),
+    cancelDownload: (version) => ipcRenderer.invoke('kernel:cancelDownload', version),
   },
 
   // App / Update checker
