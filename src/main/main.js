@@ -6,8 +6,7 @@ const net = require('net');
 const { spawn, execFile } = require('child_process');
 const https = require('https');
 const http = require('http');
-const Store = require('electron-store');
-const { v4: uuidv4 } = require('uuid');
+let Store;
 const { getProcessExitEvents } = require('./process-exit');
 const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
 const { isNewerVersion } = require('./version');
@@ -33,7 +32,7 @@ function getDefaultUserDataDir() {
 const DEFAULT_BOTBROWSER_PATH = getDefaultBotBrowserPath();
 
 // ─── Persistent store ─────────────────────────────────────────────────────────
-const store = new Store({
+const STORE_OPTIONS = {
   name: 'botbrowser-control',
   defaults: {
     profiles: [],
@@ -49,7 +48,7 @@ const store = new Store({
     lastSeenControlRelease: null,
     cachedKernelReleases: null,
   }
-});
+};
 
 // ─── Runtime state ────────────────────────────────────────────────────────────
 const runningInstances = new Map();
@@ -168,7 +167,7 @@ ipcMain.handle('profiles:getAll', () => store.get('profiles', []));
 ipcMain.handle('profiles:create', (_, profileData) => {
   const profiles = store.get('profiles', []);
   const newProfile = {
-    id: uuidv4(),
+    id: require('crypto').randomUUID(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     status: 'stopped',
@@ -216,7 +215,7 @@ ipcMain.handle('profiles:duplicate', async (_, id) => {
   const original = profiles.find(p => p.id === id);
   if (!original) throw new Error('Profile not found');
 
-  const newId = uuidv4();
+  const newId = require('crypto').randomUUID();
   const copy = {
     ...original,
     id: newId,
@@ -695,7 +694,7 @@ function getReleaseApiUrl(repository, fallback) {
 }
 
 const BOTBROWSER_RELEASES_API = getReleaseApiUrl('botswin/BotBrowser', 'https://api.github.com/repos/botswin/BotBrowser/releases/latest');
-const CONTROL_RELEASES_API    = getReleaseApiUrl('tombaki/BotBrowser', 'https://api.github.com/repos/tombaki/BotBrowser/releases/latest');
+const CONTROL_RELEASES_API    = getReleaseApiUrl('botswin/BotBrowser-Control', 'https://api.github.com/repos/botswin/BotBrowser-Control/releases/latest');
 
 ipcMain.handle('app:checkForUpdates', async () => {
   const results = { kernel: null, control: null };
@@ -1321,7 +1320,9 @@ function updateProfileStatus(profileId, status) {
 
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  ({ default: Store } = await import('electron-store'));
+  store = new Store(STORE_OPTIONS);
   nativeTheme.themeSource = 'dark';
 
   const profiles = store.get('profiles', []);

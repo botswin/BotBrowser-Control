@@ -90,6 +90,8 @@ test('profile UI creates, edits, duplicates, searches, and deletes a profile', a
     const profiles = await page.evaluate(async prefix => (await window.api.profiles.getAll()).filter(p => p.name.startsWith(prefix)), name);
     expect(profiles).toHaveLength(2);
     ids = profiles.map(p => p.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.every(id => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))).toBe(true);
     expect(profiles.find(p => p.name === `${name} (Copy)`).startUrl).toBe('https://example.test/edited');
 
     await page.locator('#search-input').fill(`${name} (Copy)`);
@@ -393,9 +395,9 @@ test('update check reports new, already-seen, and unavailable releases', async (
   app = null;
   const suffix = Date.now();
   const kernelTag = `fixture-${suffix}`;
-  const controlTag = 'control-v99.0.0';
+  const controlTag = `control-v99.0.${suffix}`;
   const server = http.createServer((request, response) => {
-    const tag = request.url.includes('botswin/BotBrowser') ? kernelTag : controlTag;
+    const tag = request.url.includes('BotBrowser-Control') ? controlTag : kernelTag;
     const body = JSON.stringify({ tag_name: tag, name: tag, published_at: '2026-09-26T00:00:00Z', html_url: 'https://example.test/release' });
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(body);
@@ -424,12 +426,13 @@ test('settings survive app restart', async () => {
   const previousSettings = await page.evaluate(() => window.api.settings.get());
   const defaultProxy = `http://127.0.0.1:${Date.now()}`;
   try {
-    await page.evaluate(proxy => window.api.settings.set({ defaultProxy: proxy }), defaultProxy);
+    await page.evaluate(proxy => window.api.settings.set({ defaultProxy: proxy, legacyField: 'preserve-me' }), defaultProxy);
     await app.close();
     app = null;
     await launchApp();
     const settings = await page.evaluate(() => window.api.settings.get());
     expect(settings.defaultProxy).toBe(defaultProxy);
+    expect(settings.legacyField).toBe('preserve-me');
   } finally {
     if (app) await page.evaluate(settings => window.api.settings.set(settings), previousSettings);
   }

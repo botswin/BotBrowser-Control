@@ -41,8 +41,7 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
-    "uuid": "^9.0.0"
+    "electron-store": "^11.0.2"
   },
   "build": {
     "appId": "io.botbrowser.control",

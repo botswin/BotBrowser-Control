@@ -153,7 +153,7 @@
     banner.innerHTML = `
       <span class="update-banner-icon">${I.bell}</span>
       <span class="update-banner-text">${parts.join(' &nbsp;·&nbsp; ')}</span>
-      <button class="btn btn-primary btn-sm" onclick="window.api.shell.openPath('https://github.com/tombaki/BotBrowser/releases')">Download</button>
+      <button class="btn btn-primary btn-sm" onclick="window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases')">Download</button>
       <button class="btn btn-ghost btn-sm" onclick="this.closest('#update-banner').remove()">${I.close}</button>
     `;
     // Insert after sidebar, before main content
