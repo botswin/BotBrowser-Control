@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2d4a"/>
+      <stop offset="100%" style="stop-color:#0f1929"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5dade2"/>
+      <stop offset="100%" style="stop-color:#2980b9"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <!-- Shield shape -->
+  <path d="M16 4 L25 7.5 L25 15 C25 20.5 21 25 16 27 C11 25 7 20.5 7 15 L7 7.5 Z" fill="url(#shield)" opacity="0.95"/>
+  <!-- Fingerprint arcs -->
+  <path d="M16 13 C17.1 13 18 13.9 18 15 C18 16.1 17.1 17 16 17" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none" opacity="0.9"/>
+  <path d="M13.5 11.5 C14.3 10.9 15.1 10.5 16 10.5 C18.5 10.5 20.5 12.5 20.5 15 C20.5 17.5 18.5 19.5 16 19.5" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none" opacity="0.75"/>
+  <path d="M11.5 9.8 C12.8 8.7 14.3 8 16 8 C19.9 8 23 11.1 23 15 C23 18.9 19.9 22 16 22 C14 22 12.2 21.2 10.9 19.9" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none" opacity="0.55"/>
+</svg>
