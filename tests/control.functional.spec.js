@@ -18,8 +18,10 @@ test('profile editor filter trims, ignores case, matches labels and ids, clears,
   await filter.fill(' NETWORK ');
   await expect(page.locator('.editor-tab[data-tab="network"]')).toHaveCount(1);
   await expect(page.locator('.editor-tab')).toHaveCount(1);
-  await filter.fill(' BROWSER ');
-  await expect(page.locator('.editor-tab')).toHaveCount(3);
+  await filter.fill(' MORE ');
+  await expect(page.locator('.editor-tab')).toHaveCount(2);
+  await expect(page.locator('.editor-tab[data-tab="session"]')).toHaveCount(1);
+  await expect(page.locator('.editor-tab[data-tab="advanced"]')).toHaveCount(1);
   await filter.fill('finger');
   await page.locator('.editor-tab[data-tab="fingerprint"]').click();
   await expect(page.locator('.editor-tab.active')).toHaveAttribute('data-tab', 'fingerprint');
@@ -28,6 +30,14 @@ test('profile editor filter trims, ignores case, matches labels and ids, clears,
   await page.locator('[data-action="clear-editor-nav"]').click();
   await expect(page.locator('.editor-tab')).toHaveCount(7);
   await expect(page.locator('.editor-tab.active')).toHaveAttribute('data-tab', 'fingerprint');
+  await page.locator('[data-action="cancel-edit"]').first().click();
+});
+
+test('profile editor filter matches a field keyword', async () => {
+  await page.locator('[data-action="new-profile"]').first().click();
+  await page.locator('#editor-nav-search').fill('canvas record');
+  await expect(page.locator('.editor-tab')).toHaveCount(1);
+  await expect(page.locator('.editor-tab[data-tab="advanced"]')).toHaveCount(1);
   await page.locator('[data-action="cancel-edit"]').first().click();
 });
 
