@@ -385,6 +385,7 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     expect(started.args).toContain('--bot-cookies=[{"name":"sid","value":"fixture"}]');
     expect(started.args).toContain('--remote-debugging-port=9333');
     expect(started.args).toContain('https://example.test/profile-start');
+    await page.evaluate(id => window.api.browser.stop(id), profile.id);
     expect(await Promise.race([stop.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 5000))])).toBe(true);
 
     fs.mkdirSync(userDataDir, { recursive: true });
@@ -398,6 +399,7 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     }), profile.id);
     const restored = await page.evaluate(id => window.api.browser.launch(id), profile.id);
     expect(restored.args).toContain(`--bot-cookies=@${savedCookiesPath}`);
+    await page.evaluate(id => window.api.browser.stop(id), profile.id);
     expect(await Promise.race([restoredStop.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 5000))])).toBe(true);
   } finally {
     await page.evaluate(async ({ id, settings }) => {
@@ -651,15 +653,15 @@ test('staged update verifies checksum and preserves failed downloads', async () 
   } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(stagingDir, { recursive: true, force: true }); }
 });
 
-test('cross-platform setup scripts select exact assets and verify checksums', async () => {
+test('cross-platform setup scripts bootstrap source builds for the host architecture', async () => {
   const linux = fs.readFileSync(path.join(__dirname, '..', 'setup-linux.sh'), 'utf8');
   const mac = fs.readFileSync(path.join(__dirname, '..', 'setup-macos.sh'), 'utf8');
-  expect(linux).toContain('platform==="linux"');
-  expect(linux).toContain('sha256sum -c');
-  expect(linux).toContain('arch=x64');
-  expect(linux).toContain('arch=arm64');
-  expect(mac).toContain('platform==="darwin"');
-  expect(mac).toContain('shasum -a 256 -c');
-  expect(mac).toContain('arch=arm64');
-  expect(mac).toContain('arch=x64');
+  expect(linux).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
+  expect(linux).toContain('node-v${NODE_VERSION}-linux-${node_arch}');
+  expect(linux).toContain('npm run build:linux');
+  expect(linux).toContain('botbrowser-control.desktop');
+  expect(mac).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
+  expect(mac).toContain('node-v${NODE_VERSION}-darwin-${node_arch}');
+  expect(mac).toContain('npm run build:mac');
+  expect(mac).toContain('BotBrowser Control.app');
 });

@@ -420,7 +420,6 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
     fake.stdout = new PassThrough();
     fake.stderr = new PassThrough();
     fake.kill = () => { setImmediate(() => fake.emit('close', null)); return true; };
-    setTimeout(() => fake.emit('close', null), 50);
     return fake;
   })() : spawn(botBrowserPath, spawnArgs, {
     detached: false,
@@ -488,7 +487,6 @@ ipcMain.handle('browser:stop', async (_, profileId) => {
   runningInstances.delete(profileId);
   cleanupTempFile(profileId);
   updateProfileStatus(profileId, 'stopped');
-  if (testHold) mainWindow?.webContents.send('instance:stopped', { profileId });
   return true;
 });
 

@@ -1,39 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-latest}"
-MANIFEST_URL="${CONTROL_MANIFEST_URL:-https://github.com/botswin/BotBrowser-Control/releases/latest/download/manifest.json}"
-INSTALL_DIR="${CONTROL_INSTALL_DIR:-$HOME/Applications}"
+NODE_VERSION="24.15.0"
+INSTALL_DIR="${CONTROL_INSTALL_DIR:-$HOME/.botbrowser-control}"
+NODE_DIR="$INSTALL_DIR/node"
+REPO_DIR="$INSTALL_DIR/BotBrowser-Control"
+REPO_ZIP_URL="${CONTROL_REPO_ZIP_URL:-https://github.com/botswin/BotBrowser-Control/archive/refs/heads/main.zip}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/botbrowser-control.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
-command -v shasum >/dev/null || { echo 'shasum is required' >&2; exit 1; }
 command -v unzip >/dev/null || { echo 'unzip is required' >&2; exit 1; }
-command -v node >/dev/null || { echo 'node is required to read the manifest' >&2; exit 1; }
 
 case "$(uname -m)" in
-  arm64) arch=arm64 ;;
-  x86_64) arch=x64 ;;
+  arm64) node_arch=arm64; build_arch=arm64 ;;
+  x86_64) node_arch=x64; build_arch=x64 ;;
   *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-manifest="$TMP_DIR/manifest.json"
-curl -fsSL "$MANIFEST_URL" -o "$manifest"
-asset="$(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1])); const v=process.argv[2], a=process.argv[3]; const x=(m.assets||[]).filter(x=>x.platform==="darwin"&&x.arch===a&&(v==="latest"||x.version===v)&&/\.zip$/i.test(x.name)); if(x.length!==1) process.exit(2); process.stdout.write(JSON.stringify(x[0]));' "$manifest" "$VERSION" "$arch")" || { echo "No unique macOS $arch asset for $VERSION" >&2; exit 1; }
-url="$(printf '%s' "$asset" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).url')"
-sha="$(printf '%s' "$asset" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).sha256')"
-name="$(printf '%s' "$asset" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).name')"
-
-archive="$TMP_DIR/$name"
-curl -fsSL "$url" -o "$archive"
-printf '%s  %s\n' "$sha" "$archive" | shasum -a 256 -c -
+if [ -x "$NODE_DIR/bin/node" ] && [ "$("$NODE_DIR/bin/node" --version)" != "v$NODE_VERSION" ]; then rm -rf "$NODE_DIR"; fi
 mkdir -p "$INSTALL_DIR"
-unzip -q "$archive" -d "$TMP_DIR/app"
-app="$(find "$TMP_DIR/app" -maxdepth 2 -name '*.app' -print -quit)"
-[ -n "$app" ] || { echo 'Release ZIP contains no .app bundle' >&2; exit 1; }
-target="$INSTALL_DIR/$(basename "$app")"
-rm -rf "$target"
-mv "$app" "$target"
-open "$target"
-echo "Installed BotBrowser Control $VERSION ($arch) to $target"
+if [ ! -x "$NODE_DIR/bin/node" ]; then
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${node_arch}.tar.gz" -o "$TMP_DIR/node.tar.gz"
+  tar -xzf "$TMP_DIR/node.tar.gz" -C "$TMP_DIR"
+  mv "$TMP_DIR/node-v${NODE_VERSION}-darwin-${node_arch}" "$NODE_DIR"
+fi
+
+rm -rf "$REPO_DIR"
+curl -fsSL "$REPO_ZIP_URL" -o "$TMP_DIR/control.zip"
+unzip -q "$TMP_DIR/control.zip" -d "$INSTALL_DIR"
+mv "$INSTALL_DIR/BotBrowser-Control-main" "$REPO_DIR"
+export PATH="$NODE_DIR/bin:$PATH" NPM_CONFIG_UPDATE_NOTIFIER=false
+cd "$REPO_DIR"
+npm ci
+npm run build:mac -- --"$build_arch"
+app="$(find "$REPO_DIR/dist" -maxdepth 3 -type d -name '*.app' -print -quit)"
+[ -n "$app" ] || { echo 'macOS build produced no .app bundle' >&2; exit 1; }
+mkdir -p "$HOME/Applications"
+rm -rf "$HOME/Applications/BotBrowser Control.app"
+mv "$app" "$HOME/Applications/BotBrowser Control.app"
+open "$HOME/Applications/BotBrowser Control.app"
