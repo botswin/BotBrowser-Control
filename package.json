@@ -10,7 +10,7 @@
     "build:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "build:mac:x64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --x64",
     "build:mac:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
-    "build:win": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
+    "build:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win",
     "build:win:x64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64",
     "build:win:ia32": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --ia32",
     "build:win:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --arm64",
