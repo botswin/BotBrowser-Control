@@ -12,6 +12,7 @@ const { getProcessExitEvents } = require('./process-exit');
 const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
 const { isNewerVersion } = require('./version');
 const { parseProxyText } = require('./proxy-parser');
+const { escapeCsv, parseCsv } = require('./csv');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -208,6 +209,33 @@ ipcMain.handle('profiles:importZip', async (_, source) => {
   });
   store.set('profiles', profiles);
   return { count: created.length, profiles: created };
+});
+
+const CSV_FIELDS = ['name', 'startUrl', 'proxyServer', 'proxyIp', 'proxyBypassRgx', 'userAgent', 'locale', 'timezone', 'platform', 'platformVersion', 'notes'];
+ipcMain.handle('profiles:exportCsv', (_, { ids, destination }) => {
+  if (!destination || !path.isAbsolute(destination)) throw new Error('Invalid export path');
+  const selected = store.get('profiles', []).filter(profile => !ids?.length || ids.includes(profile.id));
+  if (!selected.length) throw new Error('No profiles selected');
+  const csv = [CSV_FIELDS.join(','), ...selected.map(profile => CSV_FIELDS.map(field => escapeCsv(profile[field])).join(','))].join('\r\n') + '\r\n';
+  fs.writeFileSync(destination, csv, 'utf8');
+  return { count: selected.length, destination };
+});
+
+ipcMain.handle('profiles:importCsv', (_, source) => {
+  if (!source || !path.isAbsolute(source)) throw new Error('Invalid import path');
+  const rows = parseCsv(fs.readFileSync(source, 'utf8'));
+  if (!rows.length) throw new Error('CSV is empty');
+  const headers = rows[0];
+  if (headers.some(header => !CSV_FIELDS.includes(header)) || !headers.includes('name')) throw new Error('Unknown or missing CSV columns');
+  const profiles = store.get('profiles', []); const names = new Set(profiles.map(profile => profile.name)); const created = [];
+  for (const values of rows.slice(1)) {
+    const data = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
+    if (!data.name.trim()) throw new Error('CSV profile name is required');
+    let name = data.name.trim(); let suffix = 2; while (names.has(name)) name = `${data.name.trim()} (Imported ${suffix++})`;
+    names.add(name); const profile = { ...data, name, id: require('crypto').randomUUID(), status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    profiles.push(profile); created.push(profile);
+  }
+  store.set('profiles', profiles); return { count: created.length, profiles: created };
 });
 
 ipcMain.handle('proxies:getAll', () => store.get('proxies', []));

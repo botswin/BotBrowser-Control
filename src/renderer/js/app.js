@@ -289,6 +289,8 @@
       case 'submit-proxy-import':  submitProxyImport(); break;
       case 'export-profiles':      exportProfiles(); break;
       case 'import-profiles':      importProfiles(); break;
+      case 'export-csv':           exportCsv(); break;
+      case 'import-csv':           importCsv(); break;
       case 'save-profile':          saveProfile(); break;
       case 'cancel-edit':           closeProfileEditor(); break;
       case 'clear-editor-nav':      navQuery = ''; const navInput = el('editor-nav-search'); if (navInput) navInput.value = ''; renderEditorNav(); break;
@@ -398,6 +400,8 @@
           <button class="btn btn-ghost btn-sm" data-action="import-proxies">Import Proxies</button>
           <button class="btn btn-ghost btn-sm" data-action="export-profiles">Export</button>
           <button class="btn btn-ghost btn-sm" data-action="import-profiles">Import</button>
+          <button class="btn btn-ghost btn-sm" data-action="export-csv">CSV Export</button>
+          <button class="btn btn-ghost btn-sm" data-action="import-csv">CSV Import</button>
           <button class="btn btn-primary btn-sm" data-action="new-profile">${I.plus} New Profile</button>
         </div>
       </div>
@@ -975,6 +979,20 @@
       const result = await window.api.profiles.importZip(source);
       await loadProfiles(); renderView(); showToast(`Imported ${result.count} profiles`, 'success');
     } catch (error) { showToast(error.message, 'error'); }
+  }
+
+  async function exportCsv() {
+    const destination = await window.api.dialog.saveFile({ defaultPath: 'botbrowser-profiles.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] });
+    if (!destination) return;
+    try { const result = await window.api.profiles.exportCsv({ ids: [...selectedProfileIds], destination }); showToast(`Exported ${result.count} profiles`, 'success'); }
+    catch (error) { showToast(error.message, 'error'); }
+  }
+
+  async function importCsv() {
+    const source = await window.api.dialog.openFile({ filters: [{ name: 'CSV', extensions: ['csv'] }] });
+    if (!source) return;
+    try { const result = await window.api.profiles.importCsv(source); await loadProfiles(); renderView(); showToast(`Imported ${result.count} profiles`, 'success'); }
+    catch (error) { showToast(error.message, 'error'); }
   }
 
   async function submitProxyImport() {

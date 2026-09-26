@@ -9,6 +9,7 @@ const { fetchCookiesViaCDP, saveCookiesViaCDP } = require('../src/main/cookies')
 const { isNewerVersion } = require('../src/main/version');
 const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
 const JSZip = require('jszip');
+const { parseCsv } = require('../src/main/csv');
 
 let app;
 let page;
@@ -487,5 +488,23 @@ test('profile ZIP export/import round-trips safe fields and rejects corrupt arch
       if (item.name.startsWith('Zip profile ')) await page.evaluate(id => window.api.profiles.delete(id), item.id);
     }
     fs.rmSync(archive, { force: true });
+  }
+});
+
+test('profile CSV round-trips quoted fields and excludes sensitive data', async () => {
+  const profile = await page.evaluate(() => window.api.profiles.create({ name: `CSV, profile\n${Date.now()}`, startUrl: 'https://example.test/?a=1,2', proxyServer: 'http://proxy.example:80', cookies: '[{"name":"secret"}]' }));
+  const csvPath = path.join(os.tmpdir(), `botbrowser-profile-${Date.now()}.csv`);
+  try {
+    await page.evaluate(({ id, destination }) => window.api.profiles.exportCsv({ ids: [id], destination }), { id: profile.id, destination: csvPath });
+    const csv = fs.readFileSync(csvPath, 'utf8');
+    expect(csv).not.toContain('secret');
+    expect(parseCsv(csv)[1][0]).toContain('CSV, profile');
+    await page.evaluate(id => window.api.profiles.delete(id), profile.id);
+    const imported = await page.evaluate(source => window.api.profiles.importCsv(source), csvPath);
+    expect(imported.count).toBe(1);
+    expect(imported.profiles[0]).toMatchObject({ startUrl: profile.startUrl, proxyServer: profile.proxyServer });
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name.startsWith('CSV, profile')) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    fs.rmSync(csvPath, { force: true });
   }
 });

@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
     getAll: () => ipcRenderer.invoke('profiles:getAll'),
     exportZip: (options) => ipcRenderer.invoke('profiles:exportZip', options),
     importZip: (source) => ipcRenderer.invoke('profiles:importZip', source),
+    exportCsv: (options) => ipcRenderer.invoke('profiles:exportCsv', options),
+    importCsv: (source) => ipcRenderer.invoke('profiles:importCsv', source),
     create: (data) => ipcRenderer.invoke('profiles:create', data),
     update: (id, updates) => ipcRenderer.invoke('profiles:update', { id, updates }),
     delete: (id) => ipcRenderer.invoke('profiles:delete', id),
