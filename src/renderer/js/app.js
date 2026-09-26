@@ -284,6 +284,9 @@
       case 'duplicate-profile':     duplicateProfile(data.id); break;
       case 'delete-profile':        deleteProfile(data.id); break;
       case 'new-profile':           openProfileEditor(null); break;
+      case 'import-proxies':        openProxyImport(); break;
+      case 'cancel-proxy-import':  el('proxy-import-modal')?.remove(); break;
+      case 'submit-proxy-import':  submitProxyImport(); break;
       case 'save-profile':          saveProfile(); break;
       case 'cancel-edit':           closeProfileEditor(); break;
       case 'clear-editor-nav':      navQuery = ''; const navInput = el('editor-nav-search'); if (navInput) navInput.value = ''; renderEditorNav(); break;
@@ -390,6 +393,7 @@
           <div class="search-wrap">
             <input class="search-input" id="search-input" placeholder="Search profiles…" value="${esc(searchQuery)}">
           </div>
+          <button class="btn btn-ghost btn-sm" data-action="import-proxies">Import Proxies</button>
           <button class="btn btn-primary btn-sm" data-action="new-profile">${I.plus} New Profile</button>
         </div>
       </div>
@@ -937,6 +941,31 @@
   }
 
   // ─── Profile Editor ───────────────────────────────────────────────────────────
+  function openProxyImport() {
+    el('proxy-import-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'proxy-import-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-card" style="max-width:640px">
+      <div class="modal-header"><h2>Import Proxies</h2><button class="btn btn-ghost" data-action="cancel-proxy-import">✕</button></div>
+      <textarea id="proxy-import-input" class="form-input" rows="10" placeholder="http://user:pass@host:8080\n socks5://host:1080"></textarea>
+      <div id="proxy-import-results" class="form-hint">One proxy per line. Blank lines are ignored.</div>
+      <div class="modal-footer"><button class="btn btn-ghost" data-action="cancel-proxy-import">Cancel</button><button class="btn btn-primary" data-action="submit-proxy-import">Import</button></div>
+    </div>`;
+    document.body.appendChild(modal);
+  }
+
+  async function submitProxyImport() {
+    const input = el('proxy-import-input');
+    const results = el('proxy-import-results');
+    const text = input?.value || '';
+    if (!text.trim()) { results.textContent = 'Enter at least one proxy.'; return; }
+    const result = await window.api.proxies.bulkImport(text);
+    const errors = result.results.filter(item => item.error);
+    results.textContent = `Imported ${result.imported}; ${errors.length} rejected${errors.length ? ` (${errors.map(item => `line ${item.line}: ${item.error}`).join(', ')})` : ''}.`;
+    if (!errors.length) setTimeout(() => el('proxy-import-modal')?.remove(), 500);
+  }
+
   function openProfileEditor(profileId) {
     editingProfileId = profileId;
     const profile = profileId ? profiles.find(p => p.id === profileId) : null;

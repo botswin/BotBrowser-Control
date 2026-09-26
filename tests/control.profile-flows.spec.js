@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { fetchCookiesViaCDP, saveCookiesViaCDP } = require('../src/main/cookies');
 const { isNewerVersion } = require('../src/main/version');
+const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
 
 let app;
 let page;
@@ -436,4 +437,28 @@ test('settings survive app restart', async () => {
   } finally {
     if (app) await page.evaluate(settings => window.api.settings.set(settings), previousSettings);
   }
+});
+
+test('proxy parser handles formats, line numbers, and invalid ports', () => {
+  expect(parseProxyLine('user:pass@proxy.example:8080')).toMatchObject({ type: 'http', host: 'proxy.example', port: 8080, username: 'user', password: 'pass' });
+  expect(parseProxyLine('socks5://proxy.example:1080')).toMatchObject({ type: 'socks5', port: 1080 });
+  expect(parseProxyLine('proxy.example:0')).toBeNull();
+  expect(parseProxyText('http://a.test:80\r\n\r\nnot-a-proxy:abc')).toEqual([
+    expect.objectContaining({ line: 1, error: null }),
+    expect.objectContaining({ line: 3, error: 'Invalid proxy format' })
+  ]);
+});
+
+test('proxy bulk import reports partial errors, skips duplicates, and cancel has no side effect', async () => {
+  const host = `bulk-${Date.now()}.example`;
+  const text = `http://${host}:8080\ninvalid:abc\nhttp://${host}:8080`;
+  const result = await page.evaluate(text => window.api.proxies.bulkImport(text), text);
+  expect(result.imported).toBe(1);
+  expect(result.results.map(item => item.error)).toEqual([null, 'Invalid proxy format', 'Duplicate proxy']);
+  const saved = await page.evaluate(() => window.api.proxies.getAll());
+  expect(saved.filter(item => item.host === host)).toHaveLength(1);
+  await page.locator('[data-action="import-proxies"]').click();
+  await page.locator('[data-action="cancel-proxy-import"]').first().click();
+  expect(await page.locator('#proxy-import-modal').count()).toBe(0);
+  await page.evaluate(async host => { for (const item of await window.api.proxies.getAll()) if (item.host === host) await window.api.proxies.delete(item.id); }, host);
 });

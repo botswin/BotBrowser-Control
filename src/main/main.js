@@ -10,6 +10,7 @@ let Store;
 const { getProcessExitEvents } = require('./process-exit');
 const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
 const { isNewerVersion } = require('./version');
+const { parseProxyText } = require('./proxy-parser');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -36,6 +37,7 @@ const STORE_OPTIONS = {
   name: 'botbrowser-control',
   defaults: {
     profiles: [],
+    proxies: [],
     settings: {
       botBrowserPath: DEFAULT_BOTBROWSER_PATH,
       defaultUserDataDir: getDefaultUserDataDir(),
@@ -163,6 +165,28 @@ function buildMenu() {
 // ─── IPC: Profile Management ──────────────────────────────────────────────────
 
 ipcMain.handle('profiles:getAll', () => store.get('profiles', []));
+
+ipcMain.handle('proxies:getAll', () => store.get('proxies', []));
+ipcMain.handle('proxies:delete', (_, id) => {
+  store.set('proxies', store.get('proxies', []).filter(proxy => proxy.id !== id));
+  return true;
+});
+ipcMain.handle('proxies:bulkImport', (_, text) => {
+  const parsed = parseProxyText(text);
+  const proxies = store.get('proxies', []);
+  const existing = new Set(proxies.map(proxy => `${proxy.type}://${proxy.host}:${proxy.port}:${proxy.username}:${proxy.password}`));
+  const imported = [];
+  for (const result of parsed) {
+    if (!result.proxy) { imported.push(result); continue; }
+    const p = result.proxy;
+    const key = `${p.type}://${p.host}:${p.port}:${p.username}:${p.password}`;
+    if (existing.has(key)) { imported.push({ ...result, proxy: null, error: 'Duplicate proxy' }); continue; }
+    const saved = { id: require('crypto').randomUUID(), name: `${p.host}:${p.port}`, ...p, createdAt: new Date().toISOString() };
+    proxies.push(saved); existing.add(key); imported.push({ ...result, proxy: saved });
+  }
+  store.set('proxies', proxies);
+  return { results: imported, imported: imported.filter(item => item.proxy).length };
+});
 
 ipcMain.handle('profiles:create', (_, profileData) => {
   const profiles = store.get('profiles', []);

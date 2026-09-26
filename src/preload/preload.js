@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld('api', {
   proxy: {
     checkIp: (proxyServer) => ipcRenderer.invoke('proxy:checkIp', proxyServer),
   },
+  proxies: {
+    getAll: () => ipcRenderer.invoke('proxies:getAll'),
+    delete: (id) => ipcRenderer.invoke('proxies:delete', id),
+    bulkImport: (text) => ipcRenderer.invoke('proxies:bulkImport', text),
+  },
 
   // Kernel Manager
   kernel: {
