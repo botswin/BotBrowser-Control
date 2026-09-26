@@ -1123,7 +1123,7 @@
       portProtection: false, localDns: false, injectRandomHistory: '',
       mobileForceTouch: false, keyboard: 'profile',
       uaFullVersion: '', brandFullVersion: '', userAgent: '',
-      platform: '', platformVersion: '', model: '', architecture: '', bitness: '', mobile: false,
+      platform: '', platformVersion: '', model: '', architecture: '', bitness: '', mobile: '',
       cookies: '', bookmarks: '', remoteDebuggingPort: '',
       customHeaders: {}, networkInfoOverride: false,
       noiseSeed: '', timeSeed: '', stackSeed: 'profile', timeScale: '',
@@ -1751,14 +1751,15 @@
     };
 
     // Auto-detect Android
-    const isAndroid = profileData.platform === 'Android';
+    const touchMobileUa = /android|iphone|ipad|ipod/i.test(profileData.userAgent || '');
+    const isAndroid = profileData.platform === 'Android' || /android/i.test(profileData.userAgent || '');
     const hasMobileModel = profileData.model && /android|samsung|pixel|xiaomi|huawei|oneplus|oppo|vivo|lg|htc|sony|moto/i.test(profileData.model);
-    if (isAndroid || hasMobileModel) {
-      if (profileData.mobile === '' || profileData.mobile === false) profileData.mobile = true;
+    if (isAndroid || hasMobileModel || touchMobileUa) {
+      if (profileData.mobile === '') profileData.mobile = true;
       if (profileData.orientation === 'profile' || !profileData.orientation) profileData.orientation = 'portrait';
-      if (!profileData.mobileForceTouch) profileData.mobileForceTouch = true;
-      if (!profileData.architecture) profileData.architecture = 'arm64';
-      if (!profileData.bitness) profileData.bitness = '64';
+      if (!editingProfileId && !profileData.mobileForceTouch) profileData.mobileForceTouch = true;
+      if (isAndroid && !profileData.architecture) profileData.architecture = 'arm64';
+      if (isAndroid && !profileData.bitness) profileData.bitness = '64';
       if (!editingProfileId) showToast('Android detected — mobile settings auto-applied.', 'info', 4000);
     }
 

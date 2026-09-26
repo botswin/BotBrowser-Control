@@ -123,6 +123,76 @@ test('profile editor validates required name and cancel leaves no saved profile'
   await page.locator('[data-action="cancel-edit"]').last().click();
 });
 
+test('mobile user agents receive launcher-compatible defaults', async () => {
+  const cases = [
+    { label: 'Android', ua: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36', platform: 'Android', expectArchitecture: 'arm64', expectBitness: '64' },
+    { label: 'iPhone', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1' },
+    { label: 'iPad', ua: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1' },
+    { label: 'iPod', ua: 'Mozilla/5.0 (iPod touch; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Version/15.0 Mobile/15E148 Safari/604.1' },
+  ];
+  const ids = [];
+  try {
+    for (const item of cases) {
+      const name = `Mobile defaults ${item.label} ${Date.now()}`;
+      await page.locator('[data-action="new-profile"]').first().click();
+      await page.locator('#f-name').fill(name);
+      await page.locator('[data-action="tab-switch"][data-tab="identity"]').click();
+      await page.locator('#f-userAgent').fill(item.ua);
+      if (item.platform) await page.locator('#f-platform').selectOption(item.platform);
+      await page.locator('[data-action="save-profile"]').click();
+      const profile = await page.evaluate(async name => (await window.api.profiles.getAll()).find(p => p.name === name), name);
+      expect(profile).toBeTruthy();
+      ids.push(profile.id);
+      expect(profile.mobile).toBe(true);
+      expect(profile.orientation).toBe('portrait');
+      expect(profile.mobileForceTouch).toBe(true);
+      if (item.expectArchitecture) expect(profile.architecture).toBe(item.expectArchitecture);
+      if (item.expectBitness) expect(profile.bitness).toBe(item.expectBitness);
+    }
+  } finally {
+    await page.evaluate(async ids => { for (const id of ids) await window.api.profiles.delete(id); }, ids);
+  }
+});
+
+test('editing a mobile profile preserves explicit values', async () => {
+  const name = `Explicit mobile values ${Date.now()}`;
+  let id;
+  try {
+    const created = await page.evaluate(async name => window.api.profiles.create({ name, userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) Mobile', mobile: false, orientation: 'landscape', mobileForceTouch: false, architecture: 'x86', bitness: '32' }), name);
+    id = created.id;
+    await page.reload();
+    await expect(page.locator(`.profile-card[data-profile-id="${id}"]`)).toHaveCount(1);
+    await page.locator(`.profile-card[data-profile-id="${id}"] [data-action="edit-profile"]`).click();
+    await page.locator('[data-action="save-profile"]').click();
+    const profile = await page.evaluate(async id => (await window.api.profiles.getAll()).find(p => p.id === id), id);
+    expect(profile).toMatchObject({ mobile: false, orientation: 'landscape', mobileForceTouch: false, architecture: 'x86', bitness: '32' });
+  } finally {
+    if (id) await page.evaluate(async id => window.api.profiles.delete(id), id);
+  }
+});
+
+test('desktop and invalid user agents do not receive mobile defaults', async () => {
+  const cases = ['', 'not a user agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'];
+  const ids = [];
+  try {
+    for (const ua of cases) {
+      const name = `Non-mobile defaults ${Date.now()}-${ids.length}`;
+      await page.locator('[data-action="new-profile"]').first().click();
+      await page.locator('#f-name').fill(name);
+      await page.locator('[data-action="tab-switch"][data-tab="identity"]').click();
+      await page.locator('#f-userAgent').fill(ua);
+      await page.locator('[data-action="save-profile"]').click();
+      const profile = await page.evaluate(async name => (await window.api.profiles.getAll()).find(p => p.name === name), name);
+      ids.push(profile.id);
+      expect(profile.mobile).toBe('');
+      expect(profile.orientation).toBe('profile');
+      expect(profile.mobileForceTouch).toBe(false);
+    }
+  } finally {
+    await page.evaluate(async ids => { for (const id of ids) await window.api.profiles.delete(id); }, ids);
+  }
+});
+
 test('profile data is visible in the profile list after app restart', async () => {
   const name = `Restart profile ${Date.now()}`;
   const profile = await page.evaluate(name => window.api.profiles.create({ name, startUrl: 'https://example.test/restart' }), name);
