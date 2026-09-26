@@ -12,6 +12,7 @@ const JSZip = require('jszip');
 const { parseCsv } = require('../src/main/csv');
 const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
 const { selectReleaseAsset } = require('../src/main/release-manifest');
+const { stageUpdate } = require('../src/main/update-stage');
 
 let app;
 let page;
@@ -545,4 +546,18 @@ test('Windows bootstrap script pins architecture, verifies SHA-256, and stages a
   expect(script).toContain('Get-FileHash -Algorithm SHA256');
   expect(script).toContain('Move-Item -LiteralPath $stage');
   expect(script).toContain('Version already installed');
+});
+
+test('staged update verifies checksum and preserves failed downloads', async () => {
+  const payload = Buffer.from('fixture update package');
+  const hash = crypto.createHash('sha256').update(payload).digest('hex');
+  const server = http.createServer((_request, response) => { response.writeHead(200); response.end(payload); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-'));
+  try {
+    const staged = await stageUpdate({ url: `http://127.0.0.1:${server.address().port}/update`, sha256: hash, version: '2.0.0', stagingDir });
+    expect(fs.readFileSync(staged.path)).toEqual(payload);
+    await expect(stageUpdate({ url: `http://127.0.0.1:${server.address().port}/update`, sha256: 'a'.repeat(64), version: '2.0.1', stagingDir })).rejects.toThrow(/checksum/);
+    expect(fs.existsSync(path.join(stagingDir, '.2.0.1.part'))).toBe(false);
+  } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(stagingDir, { recursive: true, force: true }); }
 });

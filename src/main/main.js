@@ -15,6 +15,7 @@ const { parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { selectReleaseAsset } = require('./release-manifest');
+const { stageUpdate } = require('./update-stage');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -848,6 +849,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
 });
 
 ipcMain.handle('app:selectReleaseAsset', (_, { manifest, platform, arch }) => selectReleaseAsset(manifest, platform, arch));
+ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stagingDir: path.join(app.getPath('userData'), 'updates') }));
 
 // ─── IPC: Kernel Manager ──────────────────────────────────────────────────────
 
