@@ -278,6 +278,7 @@
   function handleAction(action, data, e) {
     switch (action) {
       case 'launch-profile':        launchProfile(data.id); break;
+      case 'warmup-profile':        warmupProfile(data.id); break;
       case 'stop-profile':          stopProfile(data.id); break;
       case 'stop-all':              stopAll(); break;
       case 'edit-profile':          openProfileEditor(data.id); break;
@@ -495,7 +496,7 @@
               <div class="profile-cell profile-actions" style="opacity:1;justify-content:flex-end;gap:2px">
                 ${isRunning
                   ? `<button class="btn btn-danger btn-sm" data-action="stop-profile" data-id="${profile.id}">${I.stop} Stop</button>`
-                  : `<button class="btn btn-primary btn-sm" data-action="launch-profile" data-id="${profile.id}">${I.play} Launch</button>`
+                  : `<button class="btn btn-primary btn-sm" data-action="launch-profile" data-id="${profile.id}">${I.play} Launch</button><button class="btn btn-ghost btn-sm" data-action="warmup-profile" data-id="${profile.id}">Warm up</button>`
                 }
                 <button class="btn btn-secondary btn-sm btn-icon" data-action="edit-profile" data-id="${profile.id}" title="Edit">${I.edit}</button>
                 <button class="btn btn-secondary btn-sm btn-icon" data-action="duplicate-profile" data-id="${profile.id}" title="Duplicate">${I.copy}</button>
@@ -1183,6 +1184,10 @@
             <input class="form-input" id="f-startUrl" type="text" placeholder="https://example.com" value="${esc(d.startUrl||'')}">
           </div>
           <div class="form-group full">
+            <label class="form-label">Warm-up URLs</label>
+            <textarea class="form-input" id="f-warmupUrls" rows="3" placeholder="One http(s) URL per line">${esc(d.warmupUrls||'')}</textarea>
+          </div>
+          <div class="form-group full">
             <label class="form-label">Profile File (.enc) ${badge('recommended')}</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-profileFilePath" placeholder="Select a .enc profile file…" value="${esc(d.profileFilePath||'')}">
@@ -1611,6 +1616,15 @@
     }
   }
 
+  async function warmupProfile(id) {
+    const profile = profiles.find(item => item.id === id);
+    const urls = String(profile?.warmupUrls || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+    if (!urls.length || urls.some(url => !/^https?:\/\//i.test(url))) { showToast('Please enter valid warm-up URLs', 'error'); return; }
+    const result = await window.api.browser.warmup(urls, { continueOnError: false });
+    const failed = result.results.find(item => !item.ok);
+    showToast(failed ? `Warm-up stopped: ${failed.error || `HTTP ${failed.status}`}` : `Warmed ${urls.length} URLs`, failed ? 'error' : 'success');
+  }
+
   async function stopProfile(id) {
     await window.api.browser.stop(id);
     await refreshRunningSessions();
@@ -1671,6 +1685,7 @@
       kernel: val('f-kernel'),
       colorScheme: selVal('f-colorScheme'),
       startUrl: val('f-startUrl'),
+      warmupUrls: val('f-warmupUrls'),
       profileFilePath: val('f-profileFilePath'),
       profileDirPath: val('f-profileDirPath'),
       proxyServer: normalizeProxy(proxyRaw),

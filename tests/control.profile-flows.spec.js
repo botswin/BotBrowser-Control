@@ -10,6 +10,7 @@ const { isNewerVersion } = require('../src/main/version');
 const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
 const JSZip = require('jszip');
 const { parseCsv } = require('../src/main/csv');
+const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
 
 let app;
 let page;
@@ -507,4 +508,20 @@ test('profile CSV round-trips quoted fields and excludes sensitive data', async 
     for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name.startsWith('CSV, profile')) await page.evaluate(id => window.api.profiles.delete(id), item.id);
     fs.rmSync(csvPath, { force: true });
   }
+});
+
+test('warmup visits valid URLs in order and continues after fixture failures', async () => {
+  expect(validateWarmupUrl('ftp://example.test')).toBeNull();
+  const calls = [];
+  const results = await runWarmupUrls(['http://one.test', 'bad-url', 'http://two.test'], {
+    request: async url => { calls.push(url); if (url.includes('one')) return { ok: true, status: 200 }; throw new Error('fixture failure'); }
+  });
+  expect(calls).toEqual(['http://one.test/', 'http://two.test/']);
+  expect(results.map(result => result.ok)).toEqual([true, false, false]);
+});
+
+test('warmup IPC uses local fixture and supports stop-on-failure', async () => {
+  const result = await page.evaluate(async () => window.api.browser.warmup(['http://127.0.0.1:1/unavailable', 'bad-url'], { continueOnError: false }));
+  expect(result.results).toHaveLength(1);
+  expect(result.results[0].ok).toBe(false);
 });

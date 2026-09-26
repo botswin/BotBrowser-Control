@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
     launch: (profileId) => ipcRenderer.invoke('browser:launch', profileId),
     stop: (profileId) => ipcRenderer.invoke('browser:stop', profileId),
     stopAll: () => ipcRenderer.invoke('browser:stopAll'),
+    warmup: (urls, options) => ipcRenderer.invoke('browser:warmup', { urls, ...(options || {}) }),
     getRunning: () => ipcRenderer.invoke('browser:getRunning'),
   },
 

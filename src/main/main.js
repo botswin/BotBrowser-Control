@@ -13,6 +13,7 @@ const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
 const { isNewerVersion } = require('./version');
 const { parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
+const { runWarmupUrls } = require('./warmup');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -510,6 +511,10 @@ ipcMain.handle('browser:getRunning', () => {
   }
   return result;
 });
+
+ipcMain.handle('browser:warmup', async (_, { urls, continueOnError = true } = {}) => ({
+  results: await runWarmupUrls(urls, { continueOnError })
+}));
 
 // ─── IPC: Settings ────────────────────────────────────────────────────────────
 
