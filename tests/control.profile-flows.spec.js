@@ -656,6 +656,7 @@ test('staged update verifies checksum and preserves failed downloads', async () 
 test('cross-platform setup scripts bootstrap source builds for the host architecture', async () => {
   const linux = fs.readFileSync(path.join(__dirname, '..', 'setup-linux.sh'), 'utf8');
   const mac = fs.readFileSync(path.join(__dirname, '..', 'setup-macos.sh'), 'utf8');
+  const windows = fs.readFileSync(path.join(__dirname, '..', 'setup-windows-source.ps1'), 'utf8');
   expect(linux).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
   expect(linux).toContain('node-v${NODE_VERSION}-linux-${node_arch}');
   expect(linux).toContain('npm run build:linux');
@@ -664,4 +665,7 @@ test('cross-platform setup scripts bootstrap source builds for the host architec
   expect(mac).toContain('node-v${NODE_VERSION}-darwin-${node_arch}');
   expect(mac).toContain('npm run build:mac');
   expect(mac).toContain('BotBrowser Control.app');
+  expect(windows).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
+  expect(windows).toContain("'npm.cmd') run build:win:x64");
+  expect(windows).toContain('BotBrowser Control.lnk');
 });

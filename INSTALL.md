@@ -6,6 +6,12 @@ Step-by-step installation guide for macOS, Windows, and Linux.
 
 ## macOS
 
+### One-command setup
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-macos.sh | bash
+```
+
 ### From DMG (recommended)
 
 1. Download `BotBrowser.Control-*-arm64.dmg` (Apple Silicon) or `BotBrowser.Control-*-x64.dmg` (Intel) from [Releases](https://github.com/botswin/BotBrowser/releases)
@@ -18,8 +24,8 @@ Step-by-step installation guide for macOS, Windows, and Linux.
 
 ```bash
 # Requires Node.js 18+ (https://nodejs.org)
-git clone https://github.com/botswin/BotBrowser.git
-cd BotBrowser/botbrowser-control
+git clone https://github.com/botswin/BotBrowser-Control.git
+cd BotBrowser-Control
 npm install
 npm start
 ```
@@ -34,6 +40,12 @@ npm run build:mac        # builds both x64 + arm64 DMG & ZIP into dist/
 ---
 
 ## Windows
+
+### One-command setup
+
+```powershell
+irm https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-windows-source.ps1 | iex
+```
 
 ### From NSIS Installer (recommended)
 
@@ -51,8 +63,8 @@ npm run build:mac        # builds both x64 + arm64 DMG & ZIP into dist/
 
 ```powershell
 # Requires Node.js 18+ (https://nodejs.org)
-git clone https://github.com/botswin/BotBrowser.git
-cd BotBrowser\botbrowser-control
+git clone https://github.com/botswin/BotBrowser-Control.git
+cd BotBrowser-Control
 npm install
 npm start
 ```
@@ -67,6 +79,12 @@ npm run build:win        # builds NSIS + portable + ZIP into dist\
 ---
 
 ## Linux
+
+### One-command setup
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-linux.sh | bash
+```
 
 ### AppImage (works on any distro)
 
@@ -116,8 +134,8 @@ botbrowser-control
 curl -fsSL https://fnm.vercel.app/install | bash
 fnm install 20
 
-git clone https://github.com/botswin/BotBrowser.git
-cd BotBrowser/botbrowser-control
+git clone https://github.com/botswin/BotBrowser-Control.git
+cd BotBrowser-Control
 npm install
 npm start
 ```

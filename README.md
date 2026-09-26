@@ -65,24 +65,34 @@ BotBrowser Control is an open-source Electron desktop application that provides 
 
 ## Installation
 
-### Option 1 — Download a pre-built release
+### Option 1 — One-command setup
 
-Go to [Releases](https://github.com/botswin/BotBrowser/releases) and download the installer for your platform:
+macOS:
 
-| Platform | File |
-|----------|------|
-| macOS (Apple Silicon) | `BotBrowser.Control-*-arm64.dmg` |
-| macOS (Intel) | `BotBrowser.Control-*-x64.dmg` |
-| Windows 64-bit | `BotBrowser.Control.Setup-*.exe` |
-| Linux (AppImage) | `BotBrowser.Control-*.AppImage` |
-| Linux (Debian/Ubuntu) | `botbrowser-control_*_amd64.deb` |
+```bash
+curl -fsSL https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-macos.sh | bash
+```
+
+Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-linux.sh | bash
+```
+
+The scripts download a private Node.js runtime, build the current host architecture, install to the user account, and launch Control. Re-run the same command to update.
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/botswin/BotBrowser-Control/main/setup-windows-source.ps1 | iex
+```
 
 ### Option 2 — Run from source
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/botswin/BotBrowser.git
-cd BotBrowser/botbrowser-control   # adjust path if this is a standalone repo
+git clone https://github.com/botswin/BotBrowser-Control.git
+cd BotBrowser-Control
 
 # 2. Install dependencies
 npm install
