@@ -650,3 +650,16 @@ test('staged update verifies checksum and preserves failed downloads', async () 
     expect(fs.existsSync(path.join(stagingDir, '.2.0.1.part'))).toBe(false);
   } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(stagingDir, { recursive: true, force: true }); }
 });
+
+test('cross-platform setup scripts select exact assets and verify checksums', async () => {
+  const linux = fs.readFileSync(path.join(__dirname, '..', 'setup-linux.sh'), 'utf8');
+  const mac = fs.readFileSync(path.join(__dirname, '..', 'setup-macos.sh'), 'utf8');
+  expect(linux).toContain('platform==="linux"');
+  expect(linux).toContain('sha256sum -c');
+  expect(linux).toContain('arch=x64');
+  expect(linux).toContain('arch=arm64');
+  expect(mac).toContain('platform==="darwin"');
+  expect(mac).toContain('shasum -a 256 -c');
+  expect(mac).toContain('arch=arm64');
+  expect(mac).toContain('arch=x64');
+});
