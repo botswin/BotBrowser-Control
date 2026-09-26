@@ -11,6 +11,7 @@ const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
 const JSZip = require('jszip');
 const { parseCsv } = require('../src/main/csv');
 const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
+const { selectReleaseAsset } = require('../src/main/release-manifest');
 
 let app;
 let page;
@@ -524,4 +525,15 @@ test('warmup IPC uses local fixture and supports stop-on-failure', async () => {
   const result = await page.evaluate(async () => window.api.browser.warmup(['http://127.0.0.1:1/unavailable', 'bad-url'], { continueOnError: false }));
   expect(result.results).toHaveLength(1);
   expect(result.results[0].ok).toBe(false);
+});
+
+test('release manifest selects exact platform asset and requires checksum', async () => {
+  const manifest = { version: '1.2.3', assets: [
+    { platform: 'win32', arch: 'x64', url: 'https://example.test/win.zip', sha256: 'a'.repeat(64) },
+    { platform: 'linux', arch: 'x64', url: 'https://example.test/linux.tar.gz', sha256: 'b'.repeat(64) }
+  ] };
+  expect(selectReleaseAsset(manifest, 'win32', 'x64')).toMatchObject({ version: '1.2.3', platform: 'win32' });
+  expect(() => selectReleaseAsset(manifest, 'win32', 'arm64')).toThrow(/Missing/);
+  expect(() => selectReleaseAsset({ ...manifest, assets: [{ platform: 'win32', arch: 'x64', url: 'x' }] }, 'win32', 'x64')).toThrow(/checksum/);
+  await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'win32', arch: 'x64' })).resolves.toMatchObject({ version: '1.2.3' });
 });

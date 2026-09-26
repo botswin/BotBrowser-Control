@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('api', {
   // App / Update checker
   app: {
     checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+    selectReleaseAsset: (options) => ipcRenderer.invoke('app:selectReleaseAsset', options),
   },
 
   // Platform info

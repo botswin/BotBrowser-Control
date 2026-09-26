@@ -14,6 +14,7 @@ const { isNewerVersion } = require('./version');
 const { parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
+const { selectReleaseAsset } = require('./release-manifest');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -845,6 +846,8 @@ ipcMain.handle('app:checkForUpdates', async () => {
 
   return results;
 });
+
+ipcMain.handle('app:selectReleaseAsset', (_, { manifest, platform, arch }) => selectReleaseAsset(manifest, platform, arch));
 
 // ─── IPC: Kernel Manager ──────────────────────────────────────────────────────
 
