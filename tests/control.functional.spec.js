@@ -1,4 +1,5 @@
 ﻿const { test, expect } = require('@playwright/test');
+const { getProcessExitEvents } = require('../src/main/process-exit');
 let app; let page;
 test.beforeEach(async () => { app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd() }); page = await app.firstWindow(); await page.waitForLoadState('domcontentloaded'); await expect(page).toHaveTitle(/BotBrowser Control/i); });
 test.afterEach(async () => { if (app) await app.close(); app = null; });
@@ -89,5 +90,19 @@ test('launch stderr is capped and exposed; preload rejects unlisted events', asy
   }
 });
 
+test('process exit events report only non-zero exit codes as errors', () => {
+  expect(getProcessExitEvents('profile-1', 0, 'warning')).toEqual({
+    error: null,
+    stopped: { profileId: 'profile-1', code: 0, stderr: undefined }
+  });
+  expect(getProcessExitEvents('profile-1', 7, 'failure')).toEqual({
+    error: { profileId: 'profile-1', error: 'BotBrowser exited with code 7', code: 7, stderr: 'failure' },
+    stopped: { profileId: 'profile-1', code: 7, stderr: 'failure' }
+  });
+  expect(getProcessExitEvents('profile-1', null, 'signal')).toEqual({
+    error: null,
+    stopped: { profileId: 'profile-1', code: null, stderr: undefined }
+  });
+});
 
 

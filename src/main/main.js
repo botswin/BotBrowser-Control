@@ -8,6 +8,7 @@ const https = require('https');
 const http = require('http');
 const Store = require('electron-store');
 const { v4: uuidv4 } = require('uuid');
+const { getProcessExitEvents } = require('./process-exit');
 
 // ─── Fix app name BEFORE anything else ───
 app.setName('BotBrowser Control');
@@ -338,8 +339,9 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
     runningInstances.delete(profileId);
     updateProfileStatus(profileId, 'stopped');
     cleanupTempFile(profileId);
-    if (code && code !== 0) mainWindow?.webContents.send('instance:error', { profileId, error: `BotBrowser exited with code ${code}`, code, stderr });
-    mainWindow?.webContents.send('instance:stopped', { profileId, code, stderr: code && code !== 0 ? stderr : undefined });
+    const events = getProcessExitEvents(profileId, code, stderr);
+    if (events.error) mainWindow?.webContents.send('instance:error', events.error);
+    mainWindow?.webContents.send('instance:stopped', events.stopped);
   });
 
   proc.on('error', (err) => {
