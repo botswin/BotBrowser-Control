@@ -537,3 +537,12 @@ test('release manifest selects exact platform asset and requires checksum', asyn
   expect(() => selectReleaseAsset({ ...manifest, assets: [{ platform: 'win32', arch: 'x64', url: 'x' }] }, 'win32', 'x64')).toThrow(/checksum/);
   await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'win32', arch: 'x64' })).resolves.toMatchObject({ version: '1.2.3' });
 });
+
+test('Windows bootstrap script pins architecture, verifies SHA-256, and stages atomically', () => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'setup-windows.ps1'), 'utf8');
+  expect(script).toContain("$_.platform -eq 'win32'");
+  expect(script).toContain("$_.arch -eq $arch");
+  expect(script).toContain('Get-FileHash -Algorithm SHA256');
+  expect(script).toContain('Move-Item -LiteralPath $stage');
+  expect(script).toContain('Version already installed');
+});
