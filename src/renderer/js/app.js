@@ -8,6 +8,7 @@
   let currentView = 'profiles';
   let editingProfileId = null;
   let searchQuery = '';
+  let navQuery = '';
   let selectedProfileIds = new Set();
   let settings = {};
   const IS_WIN = window.api.platform === 'win32';
@@ -218,6 +219,10 @@
         searchQuery = e.target.value.toLowerCase();
         renderProfiles();
       }
+      if (e.target.id === 'editor-nav-search') {
+        navQuery = e.target.value.trim().toLowerCase();
+        renderEditorNav();
+      }
     });
 
     // IPC events
@@ -231,8 +236,9 @@
       if (p) { p.status = 'stopped'; }
       refreshRunningSessions().then(() => renderView());
     });
-    window.api.on('instance:error', ({ profileId, error }) => {
-      showToast(`Error: ${error}`, 'error', 5000);
+    window.api.on('instance:error', ({ profileId, error, code, stderr }) => {
+      const detail = stderr ? ` (${stderr.trim().slice(-800)})` : '';
+      showToast(`Error${code ? ` ${code}` : ''}: ${error}${detail}`, 'error', 7000);
       const p = profiles.find(x => x.id === profileId);
       if (p) p.status = 'stopped';
       refreshRunningSessions().then(() => renderView());
@@ -278,6 +284,7 @@
       case 'new-profile':           openProfileEditor(null); break;
       case 'save-profile':          saveProfile(); break;
       case 'cancel-edit':           closeProfileEditor(); break;
+      case 'clear-editor-nav':      navQuery = ''; const navInput = el('editor-nav-search'); if (navInput) navInput.value = ''; renderEditorNav(); break;
       case 'show-context':          showContextMenu(data.id, e); break;
       case 'delete-selected':       deleteSelected(); break;
       case 'clear-selection':       clearSelection(); break;
@@ -962,18 +969,8 @@
         </div>
         <div class="editor-layout">
           <nav class="editor-sidenav">
-            <div class="editor-nav-section">Profile</div>
-            ${tabs.slice(0,2).map((t,i) =>
-              `<button class="editor-tab${i===0?' active':''}" data-action="tab-switch" data-tab="${t.id}">${t.icon}${t.label}</button>`
-            ).join('')}
-            <div class="editor-nav-section">Browser</div>
-            ${tabs.slice(2,5).map(t =>
-              `<button class="editor-tab" data-action="tab-switch" data-tab="${t.id}">${t.icon}${t.label}</button>`
-            ).join('')}
-            <div class="editor-nav-section">More</div>
-            ${tabs.slice(5).map(t =>
-              `<button class="editor-tab" data-action="tab-switch" data-tab="${t.id}">${t.icon}${t.label}</button>`
-            ).join('')}
+            <div class="editor-nav-search"><input id="editor-nav-search" class="form-input" placeholder="Filter settings" value="${esc(navQuery)}"><button type="button" data-action="clear-editor-nav" class="btn btn-ghost btn-icon" title="Clear">${I.close}</button></div>
+            <div id="editor-nav-items"></div>
           </nav>
           <div class="editor-body">
             ${renderTabGeneral(d)}
@@ -994,17 +991,30 @@
     document.body.appendChild(overlay);
     overlay.addEventListener('click', e => { if (e.target === overlay) closeProfileEditor(); });
     renderCustomHeadersUI(d.customHeaders || {});
+    renderEditorNav(tabs);
+  }
+
+  function renderEditorNav(tabs) {
+    const nav = document.getElementById('editor-nav-items');
+    if (!nav) return;
+    const groups = [['Profile', tabs.slice(0,2)], ['Browser', tabs.slice(2,5)], ['More', tabs.slice(5)]];
+    const q = navQuery.trim().toLowerCase();
+    const active = document.querySelector('.editor-tab.active')?.dataset.tab || 'general';
+    const shown = groups.map(([label, items]) => [label, items.filter(t => !q || `${t.label} ${t.id} ${label}`.toLowerCase().includes(q))]).filter(([, items]) => items.length);
+    nav.innerHTML = shown.length ? shown.map(([label, items]) => `<div class="editor-nav-section">${label}</div>${items.map(t => `<button class="editor-tab${active === t.id ? ' active' : ''}" data-action="tab-switch" data-tab="${t.id}">${t.icon}${t.label}</button>`).join('')}`).join('') : '<div class="editor-nav-empty">No match</div>';
   }
 
   function closeProfileEditor() {
     const overlay = el('profile-editor-overlay');
     if (overlay) overlay.remove();
     editingProfileId = null;
+    navQuery = '';
   }
 
   function switchTab(tab) {
     document.querySelectorAll('.editor-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.querySelectorAll('.editor-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    renderEditorNav();
     const body = document.querySelector('.editor-body');
     if (body) body.scrollTop = 0;
   }
@@ -1012,6 +1022,7 @@
   function getDefaultProfile() {
     return {
       name: '', browserBrand: '', colorScheme: 'light',
+      kernel: '',
       locale: 'auto', timezone: 'auto', languages: 'auto', location: 'auto',
       startUrl: '', proxyServer: '', proxyIp: '', proxyBypassRgx: '',
       profileFilePath: '', profileDirPath: '',
@@ -1076,6 +1087,10 @@
               <option value="light"${d.colorScheme==='light'?' selected':''}>Light</option>
               <option value="dark"${d.colorScheme==='dark'?' selected':''}>Dark</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Kernel Override</label>
+            <input class="form-input" id="f-kernel" type="text" inputmode="numeric" placeholder="Auto" value="${esc(d.kernel||'')}">
           </div>
           <div class="form-group full">
             <label class="form-label">Start URL</label>
@@ -1567,6 +1582,7 @@
     const profileData = {
       name,
       browserBrand: val('f-browserBrand') || '',
+      kernel: val('f-kernel'),
       colorScheme: selVal('f-colorScheme'),
       startUrl: val('f-startUrl'),
       profileFilePath: val('f-profileFilePath'),

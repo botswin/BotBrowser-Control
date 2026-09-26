@@ -330,21 +330,23 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
   runningInstances.set(profileId, instance);
   updateProfileStatus(profileId, 'running');
 
+  let stderr = '';
   proc.stdout.on('data', (_data) => {});
-  proc.stderr.on('data', (_data) => {});
+  proc.stderr.on('data', (data) => { stderr = (stderr + data.toString()).slice(-800); });
 
   proc.on('close', (code) => {
     runningInstances.delete(profileId);
     updateProfileStatus(profileId, 'stopped');
     cleanupTempFile(profileId);
-    mainWindow?.webContents.send('instance:stopped', { profileId, code });
+    if (code && code !== 0) mainWindow?.webContents.send('instance:error', { profileId, error: `BotBrowser exited with code ${code}`, code, stderr });
+    mainWindow?.webContents.send('instance:stopped', { profileId, code, stderr: code && code !== 0 ? stderr : undefined });
   });
 
   proc.on('error', (err) => {
     runningInstances.delete(profileId);
     updateProfileStatus(profileId, 'stopped');
     cleanupTempFile(profileId);
-    mainWindow?.webContents.send('instance:error', { profileId, error: err.message });
+    mainWindow?.webContents.send('instance:error', { profileId, error: err.message, code: err.code || null, stderr });
   });
 
   mainWindow?.webContents.send('instance:started', { profileId, pid: proc.pid });
@@ -1127,6 +1129,8 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   if (profile.brandFullVersion && profile.brandFullVersion !== '') args.push(`--bot-brand-full-version=${profile.brandFullVersion}`);
   if (profile.uaFullVersion && profile.uaFullVersion !== '') args.push(`--bot-ua-full-version=${profile.uaFullVersion}`);
   if (profile.userAgent && profile.userAgent.trim()) args.push(`--user-agent=${profile.userAgent.trim()}`);
+  const kernel = resolveKernel(profile);
+  if (kernel) args.push(`--bot-kernel=${kernel}`);
 
   if (profile.locale && profile.locale !== '') args.push(`--bot-locale=${profile.locale}`);
   if (profile.timezone && profile.timezone !== '') args.push(`--bot-timezone=${profile.timezone}`);
@@ -1225,6 +1229,25 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   if (profile.startUrl && profile.startUrl.trim()) args.push(profile.startUrl.trim());
 
   return args;
+}
+
+function tryParseBotProfile(value) {
+  const match = String(value || '').match(/\d+/);
+  const kernel = match ? Number(match[0]) : null;
+  return kernel >= 1 && kernel <= 999 ? kernel : null;
+}
+
+function resolveKernel(profile) {
+  const override = tryParseBotProfile(profile.kernelOverride || profile.kernelVersion || profile.kernel);
+  if (override) return override;
+  const ua = String(profile.userAgent || '');
+  const chrome = ua.match(/(?:Chrome|Chromium|CriOS)\/(\d+)/i);
+  if (chrome) return Number(chrome[1]);
+  if (/AppleWebKit\//i.test(ua) && /Safari\//i.test(ua) && !/Chrome\//i.test(ua)) {
+    const version = ua.match(/Version\/(\d+)/i);
+    if (version && Number(version[1]) >= 26) return 149;
+  }
+  return null;
 }
 
 // ─── CDP Cookie Save ──────────────────────────────────────────────────────────
