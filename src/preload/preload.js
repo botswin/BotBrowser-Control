@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('api', {
     fetchReleases: () => ipcRenderer.invoke('kernel:fetchReleases'),
     getCachedReleases: () => ipcRenderer.invoke('kernel:getCachedReleases'),
     getDir: () => ipcRenderer.invoke('kernel:getDir'),
+    getCapabilities: () => ipcRenderer.invoke('kernel:getCapabilities'),
     listInstalled: () => ipcRenderer.invoke('kernel:listInstalled'),
     delete: (version) => ipcRenderer.invoke('kernel:delete', version),
     download: (opts) => ipcRenderer.invoke('kernel:download', opts),

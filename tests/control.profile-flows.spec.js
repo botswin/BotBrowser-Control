@@ -340,6 +340,25 @@ test('kernel download can be cancelled and removes partial files', async () => {
   }
 });
 
+test('kernel manager exposes platform capabilities and extractor guidance', async () => {
+  const capabilities = await page.evaluate(() => window.api.kernel.getCapabilities());
+  expect(capabilities).toMatchObject({ platform: 'win32', zipExtractor: true });
+  expect(typeof capabilities.sevenZipExtractor).toBe('boolean');
+  if (!capabilities.sevenZipExtractor) {
+    const version = `7z-missing-${Date.now()}`;
+    const server = http.createServer((_request, response) => { response.writeHead(200, { 'content-length': 4 }); response.end('7z!'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const result = await page.evaluate(async ({ url, version }) => window.api.kernel.download({ downloadUrl: url, fileName: 'fixture.7z', version }), { url: `http://127.0.0.1:${server.address().port}/fixture.7z`, version });
+      expect(result.installStatus).toBe('downloaded');
+      expect(result.installNote).toMatch(/7z|not recognized|failed/i);
+    } finally {
+      await page.evaluate(version => window.api.kernel.delete(version), version);
+      await new Promise(resolve => server.close(resolve));
+    }
+  }
+});
+
 test('browser launch maps saved profile proxy, cookies, CDP port, and start URL to arguments', async () => {
   const oldSettings = await page.evaluate(() => window.api.settings.get());
   const profile = await page.evaluate(async () => window.api.profiles.create({

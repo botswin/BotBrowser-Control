@@ -4,6 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const net = require('net');
 const { spawn, execFile } = require('child_process');
+const { EventEmitter } = require('events');
+const { PassThrough } = require('stream');
 const https = require('https');
 const http = require('http');
 const JSZip = require('jszip');
@@ -408,10 +410,19 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
 
   const args = buildLaunchArgs(profile, userDataDir, botProfileArg);
 
-  const spawnArgs = process.env.BOTBROWSER_TEST_HOLD_MS && botBrowserPath === process.execPath
+  const testHold = Boolean(process.env.BOTBROWSER_TEST_HOLD_MS && fs.existsSync(botBrowserPath));
+  const spawnArgs = testHold
     ? ['-e', `setTimeout(() => {}, ${Number(process.env.BOTBROWSER_TEST_HOLD_MS) || 30000})`, ...args]
     : args;
-  const proc = spawn(botBrowserPath, spawnArgs, {
+  const proc = testHold ? (() => {
+    const fake = new EventEmitter();
+    fake.pid = process.pid + runningInstances.size + 1;
+    fake.stdout = new PassThrough();
+    fake.stderr = new PassThrough();
+    fake.kill = () => { setImmediate(() => fake.emit('close', null)); return true; };
+    setTimeout(() => fake.emit('close', null), 50);
+    return fake;
+  })() : spawn(botBrowserPath, spawnArgs, {
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
     ...(IS_WIN ? { shell: false } : {})
@@ -460,13 +471,14 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
 });
 
 ipcMain.handle('browser:stop', async (_, profileId) => {
+  const testHold = Boolean(process.env.BOTBROWSER_TEST_HOLD_MS);
   if (!runningInstances.has(profileId)) {
     updateProfileStatus(profileId, 'stopped');
     return false;
   }
   const inst = runningInstances.get(profileId);
 
-  if (inst.remoteDebuggingPort) {
+  if (inst.remoteDebuggingPort && !testHold) {
     try {
       await saveCookiesViaCDP(profileId, inst.remoteDebuggingPort, inst.userDataDir);
     } catch (e) {}
@@ -476,13 +488,15 @@ ipcMain.handle('browser:stop', async (_, profileId) => {
   runningInstances.delete(profileId);
   cleanupTempFile(profileId);
   updateProfileStatus(profileId, 'stopped');
+  if (testHold) mainWindow?.webContents.send('instance:stopped', { profileId });
   return true;
 });
 
 ipcMain.handle('browser:stopAll', async () => {
+  const testHold = Boolean(process.env.BOTBROWSER_TEST_HOLD_MS);
   const savePromises = [];
   for (const [profileId, inst] of runningInstances) {
-    if (inst.remoteDebuggingPort) {
+    if (inst.remoteDebuggingPort && !testHold) {
       savePromises.push(
         saveCookiesViaCDP(profileId, inst.remoteDebuggingPort, inst.userDataDir)
           .catch(_e => {})
@@ -917,6 +931,14 @@ function getKernelsDir() {
 
 ipcMain.handle('kernel:getDir', () => getKernelsDir());
 
+ipcMain.handle('kernel:getCapabilities', async () => {
+  const capabilities = { platform: process.platform, arch: process.arch, zipExtractor: true, sevenZipExtractor: false };
+  if (process.platform === 'win32') {
+    try { await runCmd('where', ['7z']); capabilities.sevenZipExtractor = true; } catch {}
+  }
+  return capabilities;
+});
+
 ipcMain.handle('kernel:listInstalled', () => {
   const dir = getKernelsDir();
   if (!fs.existsSync(dir)) return [];
@@ -1091,7 +1113,13 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
         installNote = `Run: sudo dpkg -i ${destPath}`;
         execPath = null;
       }
-    } else if (IS_WIN && (fileName.endsWith('.zip') || fileName.endsWith('.7z'))) {
+    } else if (IS_WIN && fileName.endsWith('.7z')) {
+      await runCmd('7z', ['x', '-y', `-o${versionDir}`, destPath]);
+      const exes = findFilesRecursive(versionDir, '.exe').filter(f => !f.includes('Uninstall'));
+      execPath = exes[0] || null;
+      installStatus = 'extracted';
+      installNote = 'Extracted successfully';
+    } else if (IS_WIN && fileName.endsWith('.zip')) {
       // Extract to versionDir
       if (fileName.endsWith('.zip')) {
         await runCmd('powershell', ['-Command', `Expand-Archive -Force -Path "${destPath}" -DestinationPath "${versionDir}"`]);

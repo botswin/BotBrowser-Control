@@ -20,6 +20,7 @@
   let kernelReleases = null;
   let kernelInstalled = [];
   let kernelDownloads = {};
+  let kernelCapabilities = null;
 
   // IP check state (profileId -> result)
   let ipCheckResults = {};
@@ -315,6 +316,7 @@
       // Kernel manager
       case 'kernel-refresh':        fetchKernelReleases(true); break;
       case 'kernel-download':       downloadKernel(data.version, data.url, data.filename); break;
+      case 'kernel-cancel':          cancelKernel(data.version); break;
       case 'kernel-delete':         deleteKernel(data.version); break;
       case 'kernel-use':            useKernelPath(data.execpath); break;
       case 'kernel-open-dir':       window.api.shell.openPath(data.dir); break;
@@ -1861,6 +1863,9 @@
     }
 
     const installedVersions = new Set(kernelInstalled.map(k => k.version));
+    const capabilityNotice = kernelCapabilities && window.api.platform === 'win32' && !kernelCapabilities.sevenZipExtractor
+      ? '<div class="kernel-capability-warning">7z extractor is unavailable. Windows .7z releases cannot be installed until 7-Zip is installed; ZIP releases remain supported.</div>'
+      : '';
 
     const installedSection = `
       <div class="kernel-installed-section">
@@ -1937,7 +1942,7 @@
                          data-version="${esc(release.tagName)}"
                          data-url="${esc(asset.downloadUrl)}"
                          data-filename="${esc(asset.name)}">${I.download} Download</button>`
-                    : `<span style="color:var(--text-3);font-size:11px">Downloading…</span>`
+                    : `<button class="btn btn-danger btn-sm" data-action="kernel-cancel" data-version="${esc(release.tagName)}">Cancel</button>`
                   }
                 </div>
               `).join('')}
@@ -1946,7 +1951,7 @@
         }).join('')}
       </div>`;
 
-    return installedSection + releasesSection;
+    return capabilityNotice + installedSection + releasesSection;
   }
 
   function formatBytes(bytes) {
@@ -1966,6 +1971,7 @@
         window.api.kernel.fetchReleases(),
         window.api.kernel.listInstalled(),
       ]);
+      kernelCapabilities = await window.api.kernel.getCapabilities();
       kernelReleases = releases;
       // Merge installed: keep existing entries, add/update from disk
       const installedMap = {};
@@ -1984,10 +1990,12 @@
   // Load cached releases from store on startup (so kernel manager shows immediately)
   async function loadCachedKernelReleases() {
     try {
-      const [cached, installed] = await Promise.all([
+      const [cached, installed, capabilities] = await Promise.all([
         window.api.kernel.getCachedReleases(),
         window.api.kernel.listInstalled(),
+        window.api.kernel.getCapabilities(),
       ]);
+      kernelCapabilities = capabilities;
       if (cached && cached.length > 0) kernelReleases = cached;
       const installedMap = {};
       installed.forEach(k => { installedMap[k.version] = k; });
@@ -2006,6 +2014,13 @@
       showToast(`Download failed: ${e.message}`, 'error', 5000);
       if (currentView === 'settings') renderSettings();
     }
+  }
+
+  async function cancelKernel(version) {
+    await window.api.kernel.cancelDownload(version);
+    kernelDownloads[version] = { status: 'cancelled' };
+    showToast(`Kernel ${version} download cancelled.`, 'info', 4000);
+    if (currentView === 'settings') renderSettings();
   }
 
   function updateKernelProgressUI(version, progress) {
