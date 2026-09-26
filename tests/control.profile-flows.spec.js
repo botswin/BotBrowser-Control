@@ -8,6 +8,7 @@ const os = require('node:os');
 const { fetchCookiesViaCDP, saveCookiesViaCDP } = require('../src/main/cookies');
 const { isNewerVersion } = require('../src/main/version');
 const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
+const JSZip = require('jszip');
 
 let app;
 let page;
@@ -461,4 +462,30 @@ test('proxy bulk import reports partial errors, skips duplicates, and cancel has
   await page.locator('[data-action="cancel-proxy-import"]').first().click();
   expect(await page.locator('#proxy-import-modal').count()).toBe(0);
   await page.evaluate(async host => { for (const item of await window.api.proxies.getAll()) if (item.host === host) await window.api.proxies.delete(item.id); }, host);
+});
+
+test('profile ZIP export/import round-trips safe fields and rejects corrupt archives', async () => {
+  const profile = await page.evaluate(() => window.api.profiles.create({ name: `Zip profile ${Date.now()}`, startUrl: 'https://example.test', cookies: '[{"name":"secret"}]' }));
+  const archive = path.join(os.tmpdir(), `botbrowser-profile-${Date.now()}.zip`);
+  try {
+    const exported = await page.evaluate(({ id, destination }) => window.api.profiles.exportZip({ ids: [id], destination }), { id: profile.id, destination: archive });
+    expect(exported.count).toBe(1);
+    const zip = await JSZip.loadAsync(fs.readFileSync(archive));
+    const payload = JSON.parse(await zip.file('profiles.json').async('string'))[0];
+    expect(payload).toMatchObject({ name: profile.name, startUrl: profile.startUrl });
+    expect(payload.cookies).toBeUndefined();
+    await page.evaluate(id => window.api.profiles.delete(id), profile.id);
+    const imported = await page.evaluate(source => window.api.profiles.importZip(source), archive);
+    expect(imported.count).toBe(1);
+    expect(imported.profiles[0]).toMatchObject({ name: profile.name, startUrl: profile.startUrl, status: 'stopped' });
+    const corrupt = path.join(os.tmpdir(), `botbrowser-corrupt-${Date.now()}.zip`);
+    fs.writeFileSync(corrupt, 'not a zip');
+    await expect(page.evaluate(source => window.api.profiles.importZip(source), corrupt)).rejects.toThrow();
+    fs.rmSync(corrupt, { force: true });
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) {
+      if (item.name.startsWith('Zip profile ')) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    }
+    fs.rmSync(archive, { force: true });
+  }
 });

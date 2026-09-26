@@ -41,7 +41,8 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "electron-store": "^11.0.2"
+    "electron-store": "^11.0.2",
+    "jszip": "^3.10.2"
   },
   "build": {
     "appId": "io.botbrowser.control",

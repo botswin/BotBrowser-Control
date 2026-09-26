@@ -6,6 +6,7 @@ const net = require('net');
 const { spawn, execFile } = require('child_process');
 const https = require('https');
 const http = require('http');
+const JSZip = require('jszip');
 let Store;
 const { getProcessExitEvents } = require('./process-exit');
 const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
@@ -165,6 +166,49 @@ function buildMenu() {
 // ─── IPC: Profile Management ──────────────────────────────────────────────────
 
 ipcMain.handle('profiles:getAll', () => store.get('profiles', []));
+
+function exportableProfile(profile) {
+  const copy = { ...profile };
+  delete copy.id; delete copy.status; delete copy.createdAt; delete copy.updatedAt;
+  delete copy.cookies; delete copy.savedCookiesPath; delete copy.cookiesSavedAt;
+  delete copy.profileFilePath; delete copy.profileDirPath;
+  return copy;
+}
+
+ipcMain.handle('profiles:exportZip', async (_, { ids, destination }) => {
+  if (!destination || !path.isAbsolute(destination)) throw new Error('Invalid export path');
+  const selected = store.get('profiles', []).filter(profile => !ids?.length || ids.includes(profile.id));
+  if (!selected.length) throw new Error('No profiles selected');
+  const zip = new JSZip();
+  zip.file('profiles.json', JSON.stringify(selected.map(exportableProfile), null, 2));
+  fs.writeFileSync(destination, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+  return { count: selected.length, destination };
+});
+
+ipcMain.handle('profiles:importZip', async (_, source) => {
+  if (!source || !path.isAbsolute(source)) throw new Error('Invalid import path');
+  const zip = await JSZip.loadAsync(fs.readFileSync(source));
+  for (const name of Object.keys(zip.files)) {
+    if (name.includes('..') || name.startsWith('/') || name !== 'profiles.json') throw new Error('Invalid profile archive');
+  }
+  const entry = zip.file('profiles.json');
+  if (!entry) throw new Error('Profile archive is missing profiles.json');
+  let imported;
+  try { imported = JSON.parse(await entry.async('string')); } catch { throw new Error('Invalid profile archive'); }
+  if (!Array.isArray(imported)) throw new Error('Invalid profile archive');
+  const profiles = store.get('profiles', []);
+  const names = new Set(profiles.map(profile => profile.name));
+  const created = imported.map(data => {
+    if (!data || typeof data !== 'object' || typeof data.name !== 'string' || !data.name.trim()) throw new Error('Invalid profile record');
+    let name = data.name.trim(); let suffix = 2;
+    while (names.has(name)) name = `${data.name.trim()} (Imported ${suffix++})`;
+    names.add(name);
+    const profile = { ...data, name, id: require('crypto').randomUUID(), status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    profiles.push(profile); return profile;
+  });
+  store.set('profiles', profiles);
+  return { count: created.length, profiles: created };
+});
 
 ipcMain.handle('proxies:getAll', () => store.get('proxies', []));
 ipcMain.handle('proxies:delete', (_, id) => {

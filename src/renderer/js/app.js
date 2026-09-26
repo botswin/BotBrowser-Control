@@ -287,6 +287,8 @@
       case 'import-proxies':        openProxyImport(); break;
       case 'cancel-proxy-import':  el('proxy-import-modal')?.remove(); break;
       case 'submit-proxy-import':  submitProxyImport(); break;
+      case 'export-profiles':      exportProfiles(); break;
+      case 'import-profiles':      importProfiles(); break;
       case 'save-profile':          saveProfile(); break;
       case 'cancel-edit':           closeProfileEditor(); break;
       case 'clear-editor-nav':      navQuery = ''; const navInput = el('editor-nav-search'); if (navInput) navInput.value = ''; renderEditorNav(); break;
@@ -394,6 +396,8 @@
             <input class="search-input" id="search-input" placeholder="Search profiles…" value="${esc(searchQuery)}">
           </div>
           <button class="btn btn-ghost btn-sm" data-action="import-proxies">Import Proxies</button>
+          <button class="btn btn-ghost btn-sm" data-action="export-profiles">Export</button>
+          <button class="btn btn-ghost btn-sm" data-action="import-profiles">Import</button>
           <button class="btn btn-primary btn-sm" data-action="new-profile">${I.plus} New Profile</button>
         </div>
       </div>
@@ -953,6 +957,24 @@
       <div class="modal-footer"><button class="btn btn-ghost" data-action="cancel-proxy-import">Cancel</button><button class="btn btn-primary" data-action="submit-proxy-import">Import</button></div>
     </div>`;
     document.body.appendChild(modal);
+  }
+
+  async function exportProfiles() {
+    const destination = await window.api.dialog.saveFile({ defaultPath: 'botbrowser-profiles.zip', filters: [{ name: 'ZIP archive', extensions: ['zip'] }] });
+    if (!destination) return;
+    try {
+      const result = await window.api.profiles.exportZip({ ids: [...selectedProfileIds], destination });
+      showToast(`Exported ${result.count} profiles`, 'success');
+    } catch (error) { showToast(error.message, 'error'); }
+  }
+
+  async function importProfiles() {
+    const source = await window.api.dialog.openFile({ filters: [{ name: 'ZIP archive', extensions: ['zip'] }] });
+    if (!source) return;
+    try {
+      const result = await window.api.profiles.importZip(source);
+      await loadProfiles(); renderView(); showToast(`Imported ${result.count} profiles`, 'success');
+    } catch (error) { showToast(error.message, 'error'); }
   }
 
   async function submitProxyImport() {
