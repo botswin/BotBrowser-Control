@@ -1119,7 +1119,7 @@
       name: '', browserBrand: '', colorScheme: 'light',
       kernel: '',
       locale: 'auto', timezone: 'auto', languages: 'auto', location: 'auto',
-      startUrl: '', proxyServer: '', proxyIp: '', proxyBypassRgx: '',
+      startUrl: '', proxyServer: '', proxyIp: '', proxyBypassRgx: '', proxyPacUrl: '', disableQuic: false,
       profileFilePath: '', profileDirPath: '',
       windowSize: 'real', screenSize: 'real', dprMode: '', orientation: 'profile',
       disableDeviceScaleFactorOnGUI: false,
@@ -1135,8 +1135,8 @@
       cookies: '', bookmarks: '', remoteDebuggingPort: '',
       customHeaders: {}, networkInfoOverride: false,
       noiseSeed: '', timeSeed: '', stackSeed: 'profile', timeScale: '',
-      fps: 'profile', mirrorController: '', mirrorClient: '',
-      canvasRecordFile: '', audioRecordFile: '',
+      fps: 'profile', videoFps: '', mirrorController: '', mirrorClient: '',
+      canvasRecordFile: '', audioRecordFile: '', v8Log: 'none', v8LogDir: '', jsHeapSizeLimit: '', storageQuota: '',
       botScript: '', ipService: '', enableVariationsInContext: false,
       gpuEmulation: true,
     };
@@ -1233,6 +1233,10 @@
             <label class="form-label">Proxy Bypass Regex ${badge('PRO')}</label>
             <input class="form-input font-mono" id="f-proxyBypassRgx" placeholder="\\.js($|\\?)" value="${esc(d.proxyBypassRgx||'')}">
           </div>
+          <div class="form-group full">
+            <label class="form-label">Proxy PAC URL</label>
+            <input class="form-input" id="f-proxyPacUrl" placeholder="file:///path/proxy.pac" value="${esc(d.proxyPacUrl||'')}">
+          </div>
         </div>
       </div>
       <div class="form-section">
@@ -1276,6 +1280,7 @@
         ${renderToggle('f-localDns', 'Local DNS Solver', 'Prevents DNS leaks.', d.localDns===true, 'ENT Tier1')}
         ${renderToggle('f-portProtection', 'Port Protection', 'Protect local service ports.', d.portProtection===true, 'PRO')}
         ${renderToggle('f-networkInfoOverride', 'Network Info Override', 'Use profile navigator.connection values.', d.networkInfoOverride===true, null)}
+        ${renderToggle('f-disableQuic', 'Disable QUIC', 'Use TCP proxy paths without HTTP/3.', d.disableQuic===true, null)}
       </div>
     </div>`;
   }
@@ -1469,6 +1474,10 @@
             <input class="form-input" id="f-fps" placeholder="profile" value="${esc(d.fps||'profile')}">
           </div>
           <div class="form-group">
+            <label class="form-label">Video FPS</label>
+            <input class="form-input" id="f-videoFps" placeholder="30:real" value="${esc(d.videoFps||'')}">
+          </div>
+          <div class="form-group">
             <label class="form-label">Time Scale</label>
             <input class="form-input" id="f-timeScale" type="number" step="0.01" min="0.01" max="0.99" placeholder="0.92" value="${esc(d.timeScale||'')}">
           </div>
@@ -1543,6 +1552,15 @@
           </div>
         </div>
         ${renderToggle('f-gpuEmulation', 'GPU Emulation', '', d.gpuEmulation!==false, 'ENT Tier2')}
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">${I.zap} Forensics & Memory</div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">V8 Log</label><select class="form-select" id="f-v8Log"><option value="none"${d.v8Log==='none'||!d.v8Log?' selected':''}>None</option><option value="sample"${d.v8Log==='sample'?' selected':''}>Sample</option><option value="full"${d.v8Log==='full'?' selected':''}>Full</option></select></div>
+          <div class="form-group"><label class="form-label">V8 Log Directory</label><input class="form-input font-mono" id="f-v8LogDir" value="${esc(d.v8LogDir||'')}"></div>
+          <div class="form-group"><label class="form-label">JS Heap Limit</label><input class="form-input" id="f-jsHeapSizeLimit" placeholder="profile / real / bytes" value="${esc(d.jsHeapSizeLimit||'')}"></div>
+          <div class="form-group"><label class="form-label">Storage Quota</label><input class="form-input" id="f-storageQuota" placeholder="profile / real / bytes" value="${esc(d.storageQuota||'')}"></div>
+        </div>
       </div>
       <div class="form-section">
         <div class="form-section-title">${I.zap} Recording</div>
@@ -1715,6 +1733,8 @@
       proxyServer: normalizeProxy(proxyRaw),
       proxyIp: val('f-proxyIp'),
       proxyBypassRgx: val('f-proxyBypassRgx'),
+      proxyPacUrl: val('f-proxyPacUrl'),
+      disableQuic: chk('f-disableQuic'),
       timezone: val('f-timezone') || 'auto',
       locale: val('f-locale') || 'auto',
       languages: val('f-languages') || 'auto',
@@ -1758,6 +1778,7 @@
       mobileForceTouch: chk('f-mobileForceTouch'),
       enableVariationsInContext: chk('f-enableVariationsInContext'),
       fps: val('f-fps') || 'profile',
+      videoFps: val('f-videoFps'),
       timeScale: val('f-timeScale'),
       noiseSeed: val('f-noiseSeed'),
       timeSeed: val('f-timeSeed'),
@@ -1772,6 +1793,10 @@
       gpuEmulation: chk('f-gpuEmulation'),
       canvasRecordFile: val('f-canvasRecordFile'),
       audioRecordFile: val('f-audioRecordFile'),
+      v8Log: selVal('f-v8Log') || 'none',
+      v8LogDir: val('f-v8LogDir'),
+      jsHeapSizeLimit: val('f-jsHeapSizeLimit'),
+      storageQuota: val('f-storageQuota'),
     };
 
     // Auto-detect Android
