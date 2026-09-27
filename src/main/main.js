@@ -905,7 +905,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
   return results;
 });
 
-ipcMain.handle('app:selectReleaseAsset', (_, { manifest, platform, arch }) => selectReleaseAsset(manifest, platform, arch));
+ipcMain.handle('app:selectReleaseAsset', (_, { manifest, platform, arch, format }) => selectReleaseAsset(manifest, platform, arch, format));
 ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stagingDir: path.join(app.getPath('userData'), 'updates') }));
 ipcMain.handle('app:getStagedUpdate', (_, version) => getStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:cancelStagedUpdate', (_, version) => cancelStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));

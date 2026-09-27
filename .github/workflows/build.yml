@@ -167,7 +167,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate Windows release manifest
+      - name: Generate cross-platform release manifest
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
@@ -183,21 +183,29 @@ jobs:
           if not tag.startswith('v'):
               raise SystemExit(f'Expected a version tag, got {tag!r}')
           version = tag[1:]
-          root = pathlib.Path('artifacts/windows-builds')
-          files = {
-              'x64': root / f'BotBrowser Control-{version}-win.zip',
-              'arm64': root / f'BotBrowser Control-{version}-arm64-win.zip',
-          }
+          specs = [
+              ('win32', 'x64', 'zip', 'windows-builds', f'BotBrowser Control-{version}-win.zip'),
+              ('win32', 'arm64', 'zip', 'windows-builds', f'BotBrowser Control-{version}-arm64-win.zip'),
+              ('darwin', 'x64', 'zip', 'mac-builds', f'BotBrowser Control-{version}-mac.zip'),
+              ('darwin', 'arm64', 'zip', 'mac-builds', f'BotBrowser Control-{version}-arm64-mac.zip'),
+              ('linux', 'x64', 'appimage', 'linux-builds', f'BotBrowser Control-{version}.AppImage'),
+              ('linux', 'arm64', 'appimage', 'linux-builds', f'BotBrowser Control-{version}-arm64.AppImage'),
+              ('linux', 'x64', 'tar.gz', 'linux-builds', f'BotBrowser Control-{version}.tar.gz'),
+              ('linux', 'arm64', 'tar.gz', 'linux-builds', f'BotBrowser Control-{version}-arm64.tar.gz'),
+          ]
           assets = []
-          for arch, path in files.items():
+          for platform, arch, format, directory, name in specs:
+              path = pathlib.Path('artifacts') / directory / name
               if not path.is_file():
-                  raise SystemExit(f'Missing Windows {arch} asset: {path}')
+                  raise SystemExit(f'Missing {platform}/{arch} {format} asset: {path}')
               digest = hashlib.sha256(path.read_bytes()).hexdigest()
               assets.append({
-                  'platform': 'win32',
+                  'platform': platform,
                   'arch': arch,
+                  'format': format,
                   'version': version,
-                  'url': f'https://github.com/{repository}/releases/download/{quote(tag, safe="")}/{quote(path.name)}',
+                  'name': name,
+                  'url': f'https://github.com/{repository}/releases/download/{quote(tag, safe="")}/{quote(name)}',
                   'sha256': digest,
               })
           pathlib.Path('manifest.json').write_text(
@@ -206,7 +214,7 @@ jobs:
           )
           PY
 
-      - name: Upload Windows release manifest
+      - name: Upload cross-platform release manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.ref_name }}" manifest.json --clobber

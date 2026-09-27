@@ -34,13 +34,19 @@ test('public docs avoid unsupported release and update claims', () => {
   expect(text).not.toMatch(/[\u2013\u2014]/);
 });
 
-test('release workflow publishes the Windows manifest asset contract', () => {
+test('release workflow publishes the cross-platform manifest asset contract', () => {
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build.yml'), 'utf8');
-  expect(workflow).toContain('name: Generate Windows release manifest');
+  expect(workflow).toContain('name: Generate cross-platform release manifest');
   expect(workflow).toContain("BotBrowser Control-{version}-win.zip");
   expect(workflow).toContain("BotBrowser Control-{version}-arm64-win.zip");
   expect(workflow).toContain('hashlib.sha256');
-  expect(workflow).toContain("'platform': 'win32'");
+  expect(workflow).toContain("('win32', 'x64', 'zip'");
+  expect(workflow).toContain("('win32', 'arm64', 'zip'");
+  expect(workflow).toContain("'platform': platform");
+  expect(workflow).toContain("'format': format");
+  expect(workflow).toContain("('darwin', 'x64', 'zip'");
+  expect(workflow).toContain("('linux', 'arm64', 'appimage'");
+  expect(workflow).toContain("('linux', 'x64', 'tar.gz'");
   expect(workflow).toContain("'arch': arch");
   expect(workflow).toContain("'version': version");
   expect(workflow).toContain("'sha256': digest");
