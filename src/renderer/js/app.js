@@ -284,6 +284,7 @@
       case 'stop-all':              stopAll(); break;
       case 'edit-profile':          openProfileEditor(data.id); break;
       case 'duplicate-profile':     duplicateProfile(data.id); break;
+      case 'clear-user-data':       clearUserData(data.id); break;
       case 'delete-profile':        deleteProfile(data.id); break;
       case 'new-profile':           openProfileEditor(null); break;
       case 'import-proxies':        openProxyImport(); break;
@@ -1655,6 +1656,14 @@
     }
   }
 
+  async function clearUserData(id) {
+    if (!confirm('Clear cookies, cache, local storage, and browsing data for this profile?')) return;
+    try {
+      await window.api.profiles.clearUserData(id);
+      showToast('User data cleared; profile settings were kept.', 'success');
+    } catch (e) { showToast(`Clear user data failed: ${e.message}`, 'error'); }
+  }
+
   async function deleteProfile(id) {
     const p = profiles.find(x => x.id === id);
     if (!confirm(`Delete profile "${p?.name || id}"? This cannot be undone.`)) return;
@@ -1797,6 +1806,7 @@
       <div class="context-menu-item" data-action="${isRunning?'stop-profile':'launch-profile'}" data-id="${profileId}">${isRunning?I.stop+' Stop':I.play+' Launch'}</div>
       <div class="context-menu-item" data-action="edit-profile" data-id="${profileId}">${I.edit} Edit</div>
       <div class="context-menu-item" data-action="duplicate-profile" data-id="${profileId}">${I.copy} Duplicate (with session)</div>
+      <div class="context-menu-item" data-action="clear-user-data" data-id="${profileId}">${I.trash} Clear user data</div>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" data-action="delete-profile" data-id="${profileId}">${I.trash} Delete</div>
     `;

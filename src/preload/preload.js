@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('profiles:delete', id),
     deleteMultiple: (ids) => ipcRenderer.invoke('profiles:deleteMultiple', ids),
     duplicate: (id) => ipcRenderer.invoke('profiles:duplicate', id),
+    clearUserData: (id) => ipcRenderer.invoke('profiles:clearUserData', id),
   },
 
   // Browser instances

@@ -766,3 +766,20 @@ test('profile CSV rejects empty files and header-only files without changing pro
     fs.rmSync(headerPath, { force: true });
   }
 });
+
+
+test('profile clear user data removes only the profile runtime directory and keeps settings', async () => {
+  const profile = await page.evaluate(() => window.api.profiles.create({ name: `Clear data ${Date.now()}`, startUrl: 'https://example.test' }));
+  const settings = await page.evaluate(() => window.api.settings.get());
+  const userDataDir = path.join(settings.defaultUserDataDir, profile.id);
+  try {
+    fs.mkdirSync(userDataDir, { recursive: true });
+    fs.writeFileSync(path.join(userDataDir, 'Cookies'), 'fixture');
+    await expect(page.evaluate(id => window.api.profiles.clearUserData(id), profile.id)).resolves.toMatchObject({ cleared: true });
+    expect(fs.existsSync(userDataDir)).toBe(false);
+    await expect(page.evaluate(id => window.api.profiles.getAll().then(items => items.find(item => item.id === id)), profile.id)).resolves.toMatchObject({ name: profile.name, startUrl: profile.startUrl });
+  } finally {
+    await page.evaluate(id => window.api.profiles.delete(id), profile.id);
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  }
+});

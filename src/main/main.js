@@ -373,6 +373,16 @@ function copyDirRecursive(src, dst) {
   }
 }
 
+ipcMain.handle('profiles:clearUserData', (_, id) => {
+  if (!id || typeof id !== 'string' || !/^[a-f0-9-]{20,}$/i.test(id)) throw new Error('Invalid profile id');
+  if (runningInstances.has(id)) throw new Error('Stop the profile before clearing user data');
+  const root = path.resolve(store.get('settings').defaultUserDataDir);
+  const userDataDir = path.resolve(root, id);
+  if (!userDataDir.startsWith(`${root}${path.sep}`)) throw new Error('Invalid user data path');
+  fs.rmSync(userDataDir, { recursive: true, force: true });
+  return { cleared: true, userDataDir };
+});
+
 // ─── IPC: Browser Launch ──────────────────────────────────────────────────────
 
 ipcMain.handle('browser:launch', async (_, profileId) => {
