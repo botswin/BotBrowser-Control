@@ -33,7 +33,7 @@
     "name": "BotBrowser Control",
     "email": "support@botbrowser.io"
   },
-  "homepage": "https://github.com/botswin/BotBrowser",
+  "homepage": "https://github.com/botswin/BotBrowser-Control",
   "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.63.0",
