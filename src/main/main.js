@@ -37,6 +37,10 @@ function getDefaultUserDataDir() {
   return path.join(app.getPath('userData'), 'browser-profiles');
 }
 
+function getProfileUserDataDir(root, profileId) {
+  return path.join(root, profileId, 'user-data-dir');
+}
+
 const DEFAULT_BOTBROWSER_PATH = getDefaultBotBrowserPath();
 
 // ─── Persistent store ─────────────────────────────────────────────────────────
@@ -337,8 +341,8 @@ ipcMain.handle('profiles:duplicate', async (_, id) => {
   };
 
   const settings = store.get('settings');
-  const srcDir = path.join(settings.defaultUserDataDir, id);
-  const dstDir = path.join(settings.defaultUserDataDir, newId);
+  const srcDir = getProfileUserDataDir(settings.defaultUserDataDir, id);
+  const dstDir = getProfileUserDataDir(settings.defaultUserDataDir, newId);
 
   if (fs.existsSync(srcDir)) {
     try {
@@ -377,8 +381,9 @@ ipcMain.handle('profiles:clearUserData', (_, id) => {
   if (!id || typeof id !== 'string' || !/^[a-f0-9-]{20,}$/i.test(id)) throw new Error('Invalid profile id');
   if (runningInstances.has(id)) throw new Error('Stop the profile before clearing user data');
   const root = path.resolve(store.get('settings').defaultUserDataDir);
-  const userDataDir = path.resolve(root, id);
-  if (!userDataDir.startsWith(`${root}${path.sep}`)) throw new Error('Invalid user data path');
+  const profileDir = path.resolve(root, id);
+  const userDataDir = getProfileUserDataDir(root, id);
+  if (!profileDir.startsWith(`${root}${path.sep}`)) throw new Error('Invalid user data path');
   fs.rmSync(userDataDir, { recursive: true, force: true });
   return { cleared: true, userDataDir };
 });
@@ -408,7 +413,7 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
     );
   }
 
-  const userDataDir = path.join(settings.defaultUserDataDir, profileId);
+  const userDataDir = getProfileUserDataDir(settings.defaultUserDataDir, profileId);
   fs.mkdirSync(userDataDir, { recursive: true });
 
   const savedCookiesPath = path.join(userDataDir, 'saved-cookies.json');

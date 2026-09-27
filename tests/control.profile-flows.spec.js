@@ -368,7 +368,7 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     remoteDebuggingPort: '9333',
     startUrl: 'https://example.test/profile-start'
   }));
-  const userDataDir = path.join(oldSettings.defaultUserDataDir, profile.id);
+  const userDataDir = path.join(oldSettings.defaultUserDataDir, profile.id, 'user-data-dir');
   try {
     await page.evaluate(path => window.api.settings.set({ botBrowserPath: path }), process.execPath);
     const stop = page.evaluate(id => new Promise(resolve => {
@@ -377,7 +377,7 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
       });
     }), profile.id);
     const started = await page.evaluate(id => window.api.browser.launch(id), profile.id);
-    expect(started.args.some(arg => arg.startsWith('--user-data-dir='))).toBe(true);
+    expect(started.args).toContain(`--user-data-dir=${userDataDir}`);
     expect(started.args).toContain('--restore-last-session');
     expect(started.args).toContain('--no-first-run');
     expect(started.args).toContain(`--bot-title=${profile.name}`);
@@ -771,7 +771,7 @@ test('profile CSV rejects empty files and header-only files without changing pro
 test('profile clear user data removes only the profile runtime directory and keeps settings', async () => {
   const profile = await page.evaluate(() => window.api.profiles.create({ name: `Clear data ${Date.now()}`, startUrl: 'https://example.test' }));
   const settings = await page.evaluate(() => window.api.settings.get());
-  const userDataDir = path.join(settings.defaultUserDataDir, profile.id);
+  const userDataDir = path.join(settings.defaultUserDataDir, profile.id, 'user-data-dir');
   try {
     fs.mkdirSync(userDataDir, { recursive: true });
     fs.writeFileSync(path.join(userDataDir, 'Cookies'), 'fixture');
