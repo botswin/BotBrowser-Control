@@ -16,7 +16,7 @@ const { isNewerVersion } = require('./version');
 const { parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
-const { selectReleaseAsset } = require('./release-manifest');
+const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
 const { extractUpdatePackage, createWindowsSwapScript } = require('./update-apply');
 
@@ -869,7 +869,9 @@ ipcMain.handle('app:checkForUpdates', async () => {
     if (controlRes.statusCode === 200) {
       const release = JSON.parse(controlRes.body);
       const tag = release.tag_name || '';
-      const remoteVer = tag.replace(/^control-v/, '');
+      const tagMatch = tag.match(/^v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
+      if (!tagMatch) throw new Error('Invalid Control release tag');
+      const remoteVer = tagMatch[1];
       results.control = {
         tagName: tag,
         version: remoteVer,
@@ -877,6 +879,7 @@ ipcMain.handle('app:checkForUpdates', async () => {
         publishedAt: release.published_at,
         url: release.html_url,
         isNewer: isNewerVersion(remoteVer, app.getVersion()),
+        manifest: createReleaseManifest(remoteVer, release.assets, tag),
       };
     }
   } catch {}

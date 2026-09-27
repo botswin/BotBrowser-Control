@@ -31,6 +31,9 @@
 
   // Update notification state
   let updateInfo = null;
+  let stagedControlUpdate = null;
+  let controlUpdateBusy = false;
+  let controlUpdateError = '';
 
   // ─── Icons ────────────────────────────────────────────────────────────────────
   const I = {
@@ -129,10 +132,46 @@
     try {
       const info = await window.api.app.checkForUpdates();
       updateInfo = info;
-      if (info.newKernel || info.newControl) {
-        showUpdateBanner(info);
-      }
+      stagedControlUpdate = info.control?.version ? await window.api.app.getStagedUpdate(info.control.version) : null;
+      if (info.newKernel || shouldShowControlUpdate(info.control, stagedControlUpdate)) showUpdateBanner(info);
     } catch {}
+  }
+
+  function shouldShowControlUpdate(control, staged) {
+    return Boolean(control && (control.isNewer || staged));
+  }
+
+  function controlUpdateCanInstall(control) {
+    const arch = window.api.arch === 'arm64' ? 'arm64' : 'x64';
+    return Boolean(IS_WIN && control?.manifest?.assets?.some(asset => asset.platform === 'win32' && asset.arch === arch));
+  }
+
+  async function stageControlUpdate() {
+    if (!updateInfo?.control || controlUpdateBusy) return;
+    controlUpdateBusy = true;
+    controlUpdateError = '';
+    showUpdateBanner(updateInfo);
+    try {
+      const arch = window.api.arch === 'arm64' ? 'arm64' : 'x64';
+      const asset = await window.api.app.selectReleaseAsset({ manifest: updateInfo.control.manifest, platform: 'win32', arch });
+      stagedControlUpdate = await window.api.app.stageUpdate({ url: asset.url, sha256: asset.sha256, version: asset.version });
+    } catch (error) {
+      controlUpdateError = error?.message || String(error);
+    } finally {
+      controlUpdateBusy = false;
+      showUpdateBanner(updateInfo);
+    }
+  }
+
+  async function applyControlUpdate() {
+    const version = stagedControlUpdate?.version;
+    if (!version || !window.confirm(`Install BotBrowser Control ${version} and restart now?`)) return;
+    try {
+      await window.api.app.applyStagedUpdate(version);
+    } catch (error) {
+      controlUpdateError = error?.message || String(error);
+      showUpdateBanner(updateInfo);
+    }
   }
 
   function showUpdateBanner(info) {
@@ -140,13 +179,20 @@
     if (existing) existing.remove();
 
     const parts = [];
-    if (info.newKernel && info.kernel) {
-      parts.push(`🧠 New BotBrowser kernel: <strong>${esc(info.kernel.tagName)}</strong>`);
-    }
-    if (info.newControl && info.control) {
-      parts.push(`🚀 New Control app: <strong>${esc(info.control.tagName)}</strong>`);
+    if (info.newKernel && info.kernel) parts.push(`🧠 New BotBrowser kernel: <strong>${esc(info.kernel.tagName)}</strong>`);
+    const control = info.control;
+    const showControl = shouldShowControlUpdate(control, stagedControlUpdate);
+    if (showControl && control) {
+      const status = controlUpdateBusy ? 'Downloading update…' : stagedControlUpdate ? `Ready to install v${esc(stagedControlUpdate.version)}` : controlUpdateError ? esc(controlUpdateError) : '';
+      parts.push(`🚀 New Control app: <strong>v${esc(control.version)}</strong> ${stagedControlUpdate ? 'staged' : 'available'}${status ? ` <small>${status}</small>` : ''}`);
     }
     if (!parts.length) return;
+    const canInstall = showControl && controlUpdateCanInstall(control);
+    const controlAction = stagedControlUpdate
+      ? '<button class="btn btn-primary btn-sm" data-action="apply-control-update">Restart to install</button>'
+      : canInstall
+        ? `<button class="btn btn-primary btn-sm" data-action="stage-control-update" ${controlUpdateBusy ? 'disabled' : ''}>${controlUpdateBusy ? 'Downloading…' : 'Download update'}</button>`
+        : '<button class="btn btn-primary btn-sm" data-action="open-control-releases">Release page</button>';
 
     const banner = document.createElement('div');
     banner.id = 'update-banner';
@@ -154,17 +200,13 @@
     banner.innerHTML = `
       <span class="update-banner-icon">${I.bell}</span>
       <span class="update-banner-text">${parts.join(' &nbsp;·&nbsp; ')}</span>
-      <button class="btn btn-primary btn-sm" onclick="window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases')">Download</button>
-      <button class="btn btn-ghost btn-sm" onclick="this.closest('#update-banner').remove()">${I.close}</button>
+      ${showControl ? controlAction : '<button class="btn btn-primary btn-sm" data-action="open-control-releases">Release page</button>'}
+      <button class="btn btn-ghost btn-sm" data-action="dismiss-update-banner" title="Dismiss">${I.close}</button>
     `;
-    // Insert after sidebar, before main content
     const layout = document.querySelector('.app-layout') || document.body;
     const main = document.getElementById('main-content');
-    if (main && main.parentNode) {
-      main.parentNode.insertBefore(banner, main);
-    } else {
-      layout.prepend(banner);
-    }
+    if (main && main.parentNode) main.parentNode.insertBefore(banner, main);
+    else layout.prepend(banner);
   }
 
   // ─── Navigation ───────────────────────────────────────────────────────────────
@@ -194,6 +236,10 @@
       if (!btn) return;
       const action = btn.dataset.action;
       const data = { ...btn.dataset };
+      if (action === 'stage-control-update') { stageControlUpdate(); return; }
+      if (action === 'apply-control-update') { applyControlUpdate(); return; }
+      if (action === 'open-control-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases'); return; }
+      if (action === 'dismiss-update-banner') { document.getElementById('update-banner')?.remove(); return; }
       handleAction(action, data, e);
     });
 
@@ -926,7 +972,7 @@
                 <div class="settings-card-title">About BotBrowser Control</div>
                 <div class="settings-card-desc">Desktop profile manager for BotBrowser</div>
               </div>
-              ${updateInfo && updateInfo.newControl && updateInfo.control
+              ${updateInfo && shouldShowControlUpdate(updateInfo.control, stagedControlUpdate)
                 ? `<span class="update-pill" style="margin-left:auto">${I.bell} v${esc(updateInfo.control.version)} available</span>`
                 : ''}
             </div>

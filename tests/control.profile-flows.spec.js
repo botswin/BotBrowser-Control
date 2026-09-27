@@ -11,8 +11,78 @@ const { parseProxyLine, parseProxyText } = require('../src/main/proxy-parser');
 const JSZip = require('jszip');
 const { parseCsv } = require('../src/main/csv');
 const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
-const { selectReleaseAsset } = require('../src/main/release-manifest');
+const { createReleaseManifest, selectReleaseAsset } = require('../src/main/release-manifest');
 const { stageUpdate } = require('../src/main/update-stage');
+const rendererSource = fs.readFileSync(path.join(__dirname, '../src/renderer/js/app.js'), 'utf8');
+
+test('Control release manifest selects exact electron-builder Windows ZIP assets with tag-bound URLs', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const releaseAssets = [
+    { name: 'BotBrowser Control-1.2.3-win.zip', browser_download_url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip', digest },
+    { name: 'BotBrowser Control-1.2.3-arm64-win.zip', browser_download_url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-arm64-win.zip', digest },
+    { name: 'BotBrowser Control-1.2.3-win.zip', browser_download_url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v9.9.9/BotBrowser%20Control-1.2.3-win.zip', digest },
+  ];
+  const manifest = createReleaseManifest('1.2.3', releaseAssets, 'v1.2.3');
+  expect(manifest.assets.map(asset => [asset.platform, asset.arch])).toEqual([['win32', 'arm64']]);
+  expect(selectReleaseAsset(manifest, 'win32', 'arm64')).toMatchObject({ sha256: 'a'.repeat(64), version: '1.2.3' });
+  expect(() => selectReleaseAsset(manifest, 'win32', 'x64')).toThrow(/Missing or ambiguous/);
+  expect(createReleaseManifest('1.2.3', releaseAssets, 'v9.9.9').assets).toEqual([]);
+});
+
+test('Control release manifest rejects assets without a valid checksum', () => {
+  const asset = { name: 'BotBrowser Control-1.2.3-win.zip', browser_download_url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip' };
+  expect(createReleaseManifest('1.2.3', [asset], 'v1.2.3').assets).toEqual([]);
+  expect(() => selectReleaseAsset({ version: '1.2.3', assets: [{ platform: 'win32', arch: 'x64', name: 'BotBrowser Control-1.2.3-win.zip', url: 'http://example.com/a.zip', sha256: 'a'.repeat(64) }] }, 'win32', 'x64')).toThrow(/invalid/i);
+});
+
+test('Control renderer downloads and applies staged update through real DOM interactions', async () => {
+  await app.evaluate(({ ipcMain }) => {
+    const calls = { stage: 0, apply: 0 };
+    globalThis.__controlUpdateCalls = calls;
+    const manifest = { version: '1.2.3', assets: [{ platform: 'win32', arch: process.arch === 'arm64' ? 'arm64' : 'x64', name: process.arch === 'arm64' ? 'BotBrowser Control-1.2.3-arm64-win.zip' : 'BotBrowser Control-1.2.3-win.zip', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip', sha256: 'a'.repeat(64) }] };
+    ipcMain.removeHandler('app:checkForUpdates');
+    ipcMain.removeHandler('app:getStagedUpdate');
+    ipcMain.removeHandler('app:selectReleaseAsset');
+    ipcMain.removeHandler('app:stageUpdate');
+    ipcMain.removeHandler('app:applyStagedUpdate');
+    ipcMain.handle('app:checkForUpdates', () => ({ kernel: null, newKernel: false, newControl: true, control: { tagName: 'v1.2.3', version: '1.2.3', isNewer: true, manifest } }));
+    ipcMain.handle('app:getStagedUpdate', () => null);
+    ipcMain.handle('app:selectReleaseAsset', (_, options) => options.manifest.assets[0]);
+    ipcMain.handle('app:stageUpdate', () => { calls.stage++; return { status: 'staged', version: '1.2.3' }; });
+    ipcMain.handle('app:applyStagedUpdate', () => { calls.apply++; return { status: 'scheduled', version: '1.2.3' }; });
+  });
+  await page.reload();
+  await expect(page.locator('#update-banner')).toBeVisible({ timeout: 5000 });
+  await page.locator('[data-action="stage-control-update"]').click();
+  await expect.poll(() => app.evaluate(() => globalThis.__controlUpdateCalls.stage)).toBe(1);
+  await expect(page.locator('[data-action="apply-control-update"]')).toBeVisible();
+  await page.evaluate(() => { window.confirm = () => false; });
+  await page.locator('[data-action="apply-control-update"]').click();
+  expect(await app.evaluate(() => globalThis.__controlUpdateCalls.apply)).toBe(0);
+  await page.evaluate(() => { window.confirm = () => true; });
+  await page.locator('[data-action="apply-control-update"]').click();
+  await expect.poll(() => app.evaluate(() => globalThis.__controlUpdateCalls.apply)).toBe(1);
+});
+
+test('stages a release package after a bounded HTTP redirect', async () => {
+  const bytes = Buffer.from('redirected update package');
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/release') { res.writeHead(302, { location: '/asset' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/zip' });
+    res.end(bytes);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-update-redirect-'));
+  try {
+    const result = await stageUpdate({ url: `http://127.0.0.1:${server.address().port}/release`, sha256, version: '1.2.3', stagingDir });
+    expect(result.status).toBe('staged');
+    expect(fs.readFileSync(result.path)).toEqual(bytes);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
+});
 
 let app;
 let page;
@@ -524,7 +594,7 @@ test('update check reports new, already-seen, and unavailable releases', async (
   app = null;
   const suffix = Date.now();
   const kernelTag = `fixture-${suffix}`;
-  const controlTag = `control-v99.0.${suffix}`;
+  const controlTag = `v99.0.${suffix}`;
   const server = http.createServer((request, response) => {
     const tag = request.url.includes('BotBrowser-Control') ? controlTag : kernelTag;
     const body = JSON.stringify({ tag_name: tag, name: tag, published_at: '2026-09-26T00:00:00Z', html_url: 'https://example.test/release' });
@@ -704,7 +774,7 @@ test('warmup IPC uses local fixture and supports stop-on-failure', async () => {
 
 test('release manifest selects exact platform asset and requires checksum', async () => {
   const manifest = { version: '1.2.3', assets: [
-    { platform: 'win32', arch: 'x64', url: 'https://example.test/win.zip', sha256: 'a'.repeat(64) },
+    { platform: 'win32', arch: 'x64', name: 'BotBrowser Control-1.2.3-win.zip', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip', sha256: 'a'.repeat(64) },
     { platform: 'linux', arch: 'x64', url: 'https://example.test/linux.tar.gz', sha256: 'b'.repeat(64) }
   ] };
   expect(selectReleaseAsset(manifest, 'win32', 'x64')).toMatchObject({ version: '1.2.3', platform: 'win32' });

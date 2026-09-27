@@ -4,6 +4,40 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 
+function getDownloadTransport(url) {
+  const parsed = new URL(url);
+  if (parsed.protocol === 'https:') return { parsed, transport: https };
+  if (parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1') return { parsed, transport: http };
+  throw new Error('Update downloads must use HTTPS');
+}
+
+function downloadToFile(url, destination, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try { target = getDownloadTransport(url); } catch (error) { reject(error); return; }
+    const request = target.transport.get(target.parsed, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        const location = response.headers.location;
+        response.resume();
+        if (!location) { reject(new Error('Update redirect missing location')); return; }
+        if (redirects >= 5) { reject(new Error('Too many update redirects')); return; }
+        let nextUrl;
+        try { nextUrl = new URL(location, target.parsed).href; } catch { reject(new Error('Invalid update redirect URL')); return; }
+        downloadToFile(nextUrl, destination, redirects + 1).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) { response.resume(); reject(new Error(`Update download failed: HTTP ${response.statusCode}`)); return; }
+      const stream = fs.createWriteStream(destination);
+      response.pipe(stream);
+      stream.on('finish', () => stream.close(resolve));
+      stream.on('error', reject);
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.setTimeout(180000, () => { request.destroy(); reject(new Error('Update download timeout')); });
+  });
+}
+
 async function stageUpdate({ url, sha256, version, stagingDir }) {
   if (!url || !/^[a-f0-9]{64}$/i.test(sha256 || '') || !version || !/^[^/\\]+$/.test(version) || !path.isAbsolute(stagingDir)) throw new Error('Invalid update package metadata');
   fs.mkdirSync(stagingDir, { recursive: true });
@@ -17,15 +51,7 @@ async function stageUpdate({ url, sha256, version, stagingDir }) {
     }
     throw new Error(`Update version already staged: ${version}`);
   }
-  await new Promise((resolve, reject) => {
-    const transport = new URL(url).protocol === 'https:' ? https : http;
-    const request = transport.get(url, response => {
-      if (response.statusCode !== 200) { response.resume(); reject(new Error(`Update download failed: HTTP ${response.statusCode}`)); return; }
-      const stream = fs.createWriteStream(temp); response.pipe(stream);
-      stream.on('finish', () => stream.close(resolve)); stream.on('error', reject);
-    });
-    request.on('error', reject); request.setTimeout(180000, () => { request.destroy(); reject(new Error('Update download timeout')); });
-  }).catch(error => { try { fs.rmSync(temp, { force: true }); } catch {} throw error; });
+  await downloadToFile(url, temp).catch(error => { try { fs.rmSync(temp, { force: true }); } catch {} throw error; });
   const hash = crypto.createHash('sha256').update(fs.readFileSync(temp)).digest('hex');
   if (hash.toLowerCase() !== sha256.toLowerCase()) { fs.rmSync(temp, { force: true }); throw new Error('Update checksum mismatch'); }
   fs.renameSync(temp, target);
