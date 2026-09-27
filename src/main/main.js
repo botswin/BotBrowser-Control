@@ -26,6 +26,17 @@ const testUserDataDir = process.env.BOTBROWSER_TEST_USER_DATA_DIR;
 if (testUserDataDir && path.isAbsolute(testUserDataDir)) {
   app.setPath('userData', testUserDataDir);
 }
+function getAvailableLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(error => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
 app.setName('BotBrowser Control');
 
 // ─── Platform-aware defaults ──────────────────────────────────────────────────
@@ -410,7 +421,9 @@ ipcMain.handle('profiles:clearUserData', (_, id) => {
 
 // ─── IPC: Browser Launch ──────────────────────────────────────────────────────
 
-ipcMain.handle('browser:launch', async (_, profileId) => {
+ipcMain.handle('browser:launch', async (_, launchRequest) => {
+  const profileId = typeof launchRequest === 'object' ? launchRequest.profileId : launchRequest;
+  const warmup = typeof launchRequest === 'object' && launchRequest.warmup === true;
   let profiles = store.get('profiles', []);
   let profile = profiles.find(p => p.id === profileId);
   if (!profile) throw new Error('Profile not found');
@@ -451,6 +464,7 @@ ipcMain.handle('browser:launch', async (_, profileId) => {
   }
 
   const args = buildLaunchArgs(profile, userDataDir, botProfileArg);
+  if (warmup && !profile.remoteDebuggingPort) args.push(`--remote-debugging-port=${await getAvailableLoopbackPort()}`);
 
   const testHold = Boolean(process.env.BOTBROWSER_TEST_HOLD_MS && fs.existsSync(botBrowserPath));
   const spawnArgs = testHold
@@ -568,9 +582,12 @@ ipcMain.handle('browser:getRunning', () => {
   return result;
 });
 
-ipcMain.handle('browser:warmup', async (_, { urls, continueOnError = true } = {}) => ({
-  results: await runWarmupUrls(urls, { continueOnError })
-}));
+ipcMain.handle('browser:warmup', async (_, { urls, profileId, continueOnError = true } = {}) => {
+  const instance = runningInstances.get(profileId);
+  if (!instance) throw new Error('Launch this profile before warming it up.');
+  if (!instance.remoteDebuggingPort) throw new Error('This profile has no remote debugging port configured.');
+  return { results: await runWarmupUrls(urls, { cdpPort: instance.remoteDebuggingPort, continueOnError }) };
+});
 
 // ─── IPC: Settings ────────────────────────────────────────────────────────────
 

@@ -851,10 +851,84 @@ test('warmup visits valid URLs in order and continues after fixture failures', a
   expect(results.map(result => result.ok)).toEqual([true, false, false]);
 });
 
-test('warmup IPC uses local fixture and supports stop-on-failure', async () => {
-  const result = await page.evaluate(async () => window.api.browser.warmup(['http://127.0.0.1:1/unavailable', 'bad-url'], { continueOnError: false }));
-  expect(result.results).toHaveLength(1);
-  expect(result.results[0].ok).toBe(false);
+test('warmup launch adds an ephemeral CDP port without changing profile settings', async () => {
+  const profile = await page.evaluate(() => window.api.profiles.create({ name: `Warmup launch ${Date.now()}` }));
+  const oldSettings = await page.evaluate(() => window.api.settings.get());
+  try {
+    await page.evaluate(path => window.api.settings.set({ botBrowserPath: path }), process.execPath);
+    const started = await page.evaluate(id => window.api.browser.launch(id, { warmup: true }), profile.id);
+    const portArg = started.args.find(arg => arg.startsWith('--remote-debugging-port='));
+    expect(Number(portArg?.split('=')[1])).toBeGreaterThan(0);
+    expect((await page.evaluate(id => window.api.profiles.getAll().then(items => items.find(item => item.id === id)), profile.id)).remoteDebuggingPort).toBeFalsy();
+    await page.evaluate(id => window.api.browser.stop(id), profile.id);
+  } finally {
+    await page.evaluate(async ({ id, settings }) => {
+      await window.api.profiles.delete(id);
+      await window.api.settings.set({ botBrowserPath: settings.botBrowserPath });
+    }, { id: profile.id, settings: oldSettings });
+  }
+});
+
+test('warmup sends Page.navigate in order and honors stop-on-failure', async () => {
+  const calls = [];
+  const createSession = async port => ({
+    async navigate(url) {
+      calls.push(['Page.navigate', port, url]);
+      if (url.includes('two')) throw new Error('fixture CDP failure');
+      calls.push(['Page.loadEventFired', url]);
+    },
+    close() { calls.push(['close']); }
+  });
+  const urls = ['http://one.test', 'http://two.test', 'http://three.test'];
+  const continued = await runWarmupUrls(urls, { cdpPort: 9333, createSession });
+  expect(continued.map(result => result.ok)).toEqual([true, false, true]);
+  expect(calls.map(call => call[0])).toEqual(['Page.navigate', 'Page.loadEventFired', 'Page.navigate', 'Page.navigate', 'Page.loadEventFired', 'close']);
+  calls.length = 0;
+  const stopped = await runWarmupUrls(urls, { cdpPort: 9333, createSession, continueOnError: false });
+  expect(stopped.map(result => result.ok)).toEqual([true, false]);
+  expect(calls.filter(call => call[0] === 'Page.navigate').map(call => call[2])).toEqual(['http://one.test/', 'http://two.test/']);
+});
+
+test('warmup IPC rejects requests without the matching running profile', async () => {
+  await expect(page.evaluate(() => window.api.browser.warmup(['http://example.test'], { profileId: 'missing' })))
+    .rejects.toThrow(/Launch this profile/);
+});
+
+test('warmup uses stock Chrome CDP against ordered local pages', async () => {
+  test.skip(process.platform !== 'win32' || !fs.existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe'), 'Stock Chrome smoke is Windows-only');
+  const visits = [];
+  const fixture = http.createServer((request, response) => {
+    if (request.url !== '/favicon.ico') visits.push(request.url);
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<title>Warmup fixture</title>');
+  });
+  await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve));
+  const portServer = net.createServer();
+  await new Promise(resolve => portServer.listen(0, '127.0.0.1', resolve));
+  const cdpPort = portServer.address().port;
+  await new Promise(resolve => portServer.close(resolve));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-warmup-chrome-'));
+  const chrome = childProcess.spawn('C:/Program Files/Google/Chrome/Application/chrome.exe', [
+    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    '--remote-debugging-port=' + cdpPort, '--user-data-dir=' + userDataDir, 'about:blank'
+  ], { stdio: 'ignore' });
+  const chromeClosed = new Promise(resolve => chrome.once('close', resolve));
+  try {
+    const urls = ['/first', '/second'].map(route => `http://127.0.0.1:${fixture.address().port}${route}`);
+    const results = await runWarmupUrls(urls, { cdpPort, continueOnError: false });
+    const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json();
+    const finalUrl = targets.find(target => target.type === 'page')?.url;
+    expect(results.map(result => result.ok)).toEqual([true, true]);
+    expect(visits).toEqual(['/first', '/second']);
+    expect(finalUrl).toBe(urls[1]);
+  } finally {
+    if (chrome.exitCode === null) {
+      try { childProcess.execFileSync('taskkill', ['/PID', String(chrome.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+      await Promise.race([chromeClosed, new Promise(resolve => setTimeout(resolve, 5000))]);
+    }
+    await new Promise(resolve => fixture.close(resolve));
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  }
 });
 
 test('release manifest selects exact platform asset and requires checksum', async () => {

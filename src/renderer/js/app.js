@@ -1692,9 +1692,14 @@
     const profile = profiles.find(item => item.id === id);
     const urls = String(profile?.warmupUrls || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean);
     if (!urls.length || urls.some(url => !/^https?:\/\//i.test(url))) { showToast('Please enter valid warm-up URLs', 'error'); return; }
-    const result = await window.api.browser.warmup(urls, { continueOnError: false });
-    const failed = result.results.find(item => !item.ok);
-    showToast(failed ? `Warm-up stopped: ${failed.error || `HTTP ${failed.status}`}` : `Warmed ${urls.length} URLs`, failed ? 'error' : 'success');
+    try {
+      await window.api.browser.launch(id, { warmup: true });
+      const result = await window.api.browser.warmup(urls, { profileId: id, continueOnError: false });
+      const failed = result.results.find(item => !item.ok);
+      showToast(failed ? `Warm-up stopped: ${failed.error || `HTTP ${failed.status}`}` : `Warmed ${urls.length} URLs`, failed ? 'error' : 'success');
+    } catch (error) {
+      showToast(`Warm-up failed: ${error.message}`, 'error', 6000);
+    }
   }
 
   async function stopProfile(id) {

@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Browser instances
   browser: {
-    launch: (profileId) => ipcRenderer.invoke('browser:launch', profileId),
+    launch: (profileId, options) => ipcRenderer.invoke('browser:launch', options ? { profileId, ...options } : profileId),
     stop: (profileId) => ipcRenderer.invoke('browser:stop', profileId),
     stopAll: () => ipcRenderer.invoke('browser:stopAll'),
     warmup: (urls, options) => ipcRenderer.invoke('browser:warmup', { urls, ...(options || {}) }),
