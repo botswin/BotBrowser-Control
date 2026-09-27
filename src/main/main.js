@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, nativeTheme, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -176,6 +176,20 @@ function buildMenu() {
 // ─── IPC: Profile Management ──────────────────────────────────────────────────
 
 ipcMain.handle('profiles:getAll', () => store.get('profiles', []));
+
+function buildCliCommand(profile) {
+  if (!profile || typeof profile !== 'object') throw new Error('Profile not found');
+  const browserPath = store.get('settings', {}).botBrowserPath || (IS_WIN ? 'chrome.exe' : 'chromium');
+  const args = buildLaunchArgs(profile, '<user-data-dir>', '<path-to-profile>');
+  return [browserPath, ...args].map((part, index) => index === 0 ? part : '  ' + part).join(' ' + String.fromCharCode(92) + '\n');
+}
+
+ipcMain.handle('profiles:copyCliCommand', (_, id) => {
+  const profile = store.get('profiles', []).find(item => item.id === id);
+  const command = buildCliCommand(profile);
+  clipboard.writeText(command);
+  return command;
+});
 
 function exportableProfile(profile) {
   const copy = { ...profile };

@@ -410,6 +410,24 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
   }
 });
 
+test('profile context menu copies the launch command', async () => {
+  const profile = await page.evaluate(() => window.api.profiles.create({
+    name: `CLI fixture ${Date.now()}`,
+    proxyServer: 'http://127.0.0.1:8080'
+  }));
+  try {
+    await page.reload();
+    await page.locator(`[data-action="show-context"][data-id="${profile.id}"]`).click();
+    await page.locator(`[data-action="copy-cli-command"][data-id="${profile.id}"]`).click();
+    const command = await app.evaluate(({ clipboard }) => clipboard.readText());
+    expect(command).toContain('--bot-profile=<path-to-profile>');
+    expect(command).toContain('--proxy-server=http://127.0.0.1:8080');
+    expect(command).toContain(`--bot-title=${profile.name}`);
+    await expect(page.locator('.toast-success')).toContainText('CLI command copied');
+  } finally {
+    await page.evaluate(id => window.api.profiles.delete(id), profile.id);
+  }
+});
 test('browser stop contracts handle absent and empty running instances', async () => {
   const result = await page.evaluate(async () => ({
     stopped: await window.api.browser.stop('missing-profile'),

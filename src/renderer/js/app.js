@@ -285,6 +285,7 @@
       case 'edit-profile':          openProfileEditor(data.id); break;
       case 'duplicate-profile':     duplicateProfile(data.id); break;
       case 'clear-user-data':       clearUserData(data.id); break;
+      case 'copy-cli-command':    copyCliCommand(data.id); break;
       case 'delete-profile':        deleteProfile(data.id); break;
       case 'new-profile':           openProfileEditor(null); break;
       case 'import-proxies':        openProxyImport(); break;
@@ -1656,6 +1657,14 @@
     }
   }
 
+  async function copyCliCommand(id) {
+    try {
+      await window.api.profiles.copyCliCommand(id);
+      showToast('CLI command copied.', 'success');
+    } catch (e) {
+      showToast('Copy failed: ' + e.message, 'error');
+    }
+  }
   async function clearUserData(id) {
     if (!confirm('Clear cookies, cache, local storage, and browsing data for this profile?')) return;
     try {
@@ -1807,6 +1816,7 @@
       <div class="context-menu-item" data-action="edit-profile" data-id="${profileId}">${I.edit} Edit</div>
       <div class="context-menu-item" data-action="duplicate-profile" data-id="${profileId}">${I.copy} Duplicate (with session)</div>
       <div class="context-menu-item" data-action="clear-user-data" data-id="${profileId}">${I.trash} Clear user data</div>
+      <div class="context-menu-item" data-action="copy-cli-command" data-id="${profileId}">${I.copy} Copy CLI command</div>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" data-action="delete-profile" data-id="${profileId}">${I.trash} Delete</div>
     `;
