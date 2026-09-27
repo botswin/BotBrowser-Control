@@ -585,6 +585,57 @@ test('profile ZIP export/import round-trips safe fields and rejects corrupt arch
   }
 });
 
+test('profile ZIP import rejects traversal entries without persisting profiles', async () => {
+  const archive = path.join(os.tmpdir(), `botbrowser-traversal-${Date.now()}.zip`);
+  const name = `Traversal sentinel ${Date.now()}`;
+  try {
+    await page.evaluate(name => window.api.profiles.create({ name }), name);
+    const before = await page.evaluate(() => window.api.profiles.getAll());
+    const zip = new JSZip();
+    zip.file('../outside.json', '{}');
+    zip.file('profiles.json', JSON.stringify([{ name: 'Must not import' }]));
+    fs.writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
+    await expect(page.evaluate(source => window.api.profiles.importZip(source), archive)).rejects.toThrow(/Invalid profile archive/);
+    expect(await page.evaluate(() => window.api.profiles.getAll())).toEqual(before);
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name === name) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    fs.rmSync(archive, { force: true });
+  }
+});
+
+test('profile ZIP import suffixes duplicate names and invalid input has no side effect', async () => {
+  const archive = path.join(os.tmpdir(), `botbrowser-duplicate-${Date.now()}.zip`);
+  const name = `Duplicate ZIP ${Date.now()}`;
+  try {
+    await page.evaluate(name => window.api.profiles.create({ name }), name);
+    const zip = new JSZip();
+    zip.file('profiles.json', JSON.stringify([{ name, startUrl: 'https://example.test/imported' }]));
+    fs.writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
+    const imported = await page.evaluate(source => window.api.profiles.importZip(source), archive);
+    expect(imported.profiles[0].name).toBe(`${name} (Imported 2)`);
+    const beforeInvalid = await page.evaluate(() => window.api.profiles.getAll());
+    await expect(page.evaluate(() => window.api.profiles.importZip(null))).rejects.toThrow(/Invalid import path/);
+    expect(await page.evaluate(() => window.api.profiles.getAll())).toEqual(beforeInvalid);
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name.startsWith(name)) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    fs.rmSync(archive, { force: true });
+  }
+});
+
+test('profile ZIP import leaves stored profiles unchanged after corrupt archive failure', async () => {
+  const archive = path.join(os.tmpdir(), `botbrowser-corrupt-unchanged-${Date.now()}.zip`);
+  const name = `Corrupt sentinel ${Date.now()}`;
+  try {
+    await page.evaluate(name => window.api.profiles.create({ name }), name);
+    const before = await page.evaluate(() => window.api.profiles.getAll());
+    fs.writeFileSync(archive, 'not a zip');
+    await expect(page.evaluate(source => window.api.profiles.importZip(source), archive)).rejects.toThrow();
+    expect(await page.evaluate(() => window.api.profiles.getAll())).toEqual(before);
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name === name) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    fs.rmSync(archive, { force: true });
+  }
+});
 test('profile CSV round-trips quoted fields and excludes sensitive data', async () => {
   const profile = await page.evaluate(() => window.api.profiles.create({ name: `CSV, profile\n${Date.now()}`, startUrl: 'https://example.test/?a=1,2', proxyServer: 'http://proxy.example:80', cookies: '[{"name":"secret"}]' }));
   const csvPath = path.join(os.tmpdir(), `botbrowser-profile-${Date.now()}.csv`);
