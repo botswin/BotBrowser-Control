@@ -366,6 +366,13 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     proxyServer: 'http://127.0.0.1:8080',
     cookies: '[{"name":"sid","value":"fixture"}]',
     remoteDebuggingPort: '9333',
+    proxyPacUrl: 'file:///tmp/proxy.pac',
+    disableQuic: true,
+    videoFps: '30:real',
+    v8Log: 'sample',
+    v8LogDir: 'C:\\logs',
+    jsHeapSizeLimit: 33554432,
+    storageQuota: 'real',
     startUrl: 'https://example.test/profile-start'
   }));
   const userDataDir = path.join(oldSettings.defaultUserDataDir, profile.id, 'user-data-dir');
@@ -382,6 +389,13 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     expect(started.args).toContain('--no-first-run');
     expect(started.args).toContain(`--bot-title=${profile.name}`);
     expect(started.args).toContain('--proxy-server=http://127.0.0.1:8080');
+    expect(started.args).toContain('--proxy-pac-url=file:///tmp/proxy.pac');
+    expect(started.args).toContain('--disable-quic');
+    expect(started.args).toContain('--bot-video-fps=30:real');
+    expect(started.args).toContain('--bot-v8-log=sample');
+    expect(started.args).toContain('--bot-v8-log-dir=C:\\logs');
+    expect(started.args).toContain('--bot-js-heap-size-limit=33554432');
+    expect(started.args).toContain('--bot-storage-quota=real');
     expect(started.args).toContain('--bot-cookies=[{"name":"sid","value":"fixture"}]');
     expect(started.args).toContain('--remote-debugging-port=9333');
     expect(started.args).toContain('https://example.test/profile-start');

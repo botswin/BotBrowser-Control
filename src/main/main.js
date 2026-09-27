@@ -1357,6 +1357,8 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   if (profile.proxyServer && profile.proxyServer.trim()) args.push(`--proxy-server=${profile.proxyServer.trim()}`);
   if (profile.proxyIp && profile.proxyIp.trim()) args.push(`--proxy-ip=${profile.proxyIp.trim()}`);
   if (profile.proxyBypassRgx && profile.proxyBypassRgx.trim()) args.push(`--proxy-bypass-rgx=${profile.proxyBypassRgx.trim()}`);
+  if (profile.proxyPacUrl && profile.proxyPacUrl.trim()) args.push(`--proxy-pac-url=${profile.proxyPacUrl.trim()}`);
+  if (profile.disableQuic === true || profile.disableQuic === 'true') args.push('--disable-quic');
 
   if (profile.browserBrand && profile.browserBrand !== '') args.push(`--bot-browser-brand=${profile.browserBrand}`);
   if (profile.brandFullVersion && profile.brandFullVersion !== '') args.push(`--bot-brand-full-version=${profile.brandFullVersion}`);
@@ -1427,8 +1429,17 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   }
   if (profile.timeScale !== undefined && profile.timeScale !== '') { const ts = parseFloat(profile.timeScale); if (!isNaN(ts) && ts > 0 && ts < 1) args.push(`--bot-time-scale=${ts}`); }
   if (profile.fps !== undefined && profile.fps !== '' && profile.fps !== 'profile') args.push(`--bot-fps=${profile.fps}`);
+  if (profile.videoFps !== undefined && profile.videoFps !== '' && profile.videoFps !== 'profile') args.push(`--bot-video-fps=${profile.videoFps}`);
 
   if (profile.gpuEmulation === false || profile.gpuEmulation === 'false') args.push('--bot-gpu-emulation=false');
+
+  const emitBytePolicy = (flag, value) => {
+    if (value === 'profile' || value === 'real') { args.push(`${flag}=${value}`); return; }
+    const number = Number(value);
+    if (value !== undefined && value !== null && value !== '' && Number.isInteger(number) && number > 0) args.push(`${flag}=${number}`);
+  };
+  emitBytePolicy('--bot-js-heap-size-limit', profile.jsHeapSizeLimit);
+  emitBytePolicy('--bot-storage-quota', profile.storageQuota);
 
   if (profile.customHeaders && typeof profile.customHeaders === 'object' && Object.keys(profile.customHeaders).length > 0) {
     args.push('--bot-custom-headers=' + JSON.stringify(profile.customHeaders));
@@ -1441,6 +1452,11 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
 
   if (profile.canvasRecordFile) args.push(`--bot-canvas-record-file=${profile.canvasRecordFile}`);
   if (profile.audioRecordFile) args.push(`--bot-audio-record-file=${profile.audioRecordFile}`);
+
+  if (profile.v8Log) {
+    args.push(`--bot-v8-log=${profile.v8Log}`);
+    if (profile.v8Log !== 'none' && profile.v8LogDir) args.push(`--bot-v8-log-dir=${profile.v8LogDir}`);
+  }
 
   if (profile.botScript) args.push(`--bot-script=${profile.botScript}`);
 
