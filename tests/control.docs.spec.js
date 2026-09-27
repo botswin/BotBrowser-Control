@@ -68,3 +68,9 @@ test('renderer has no third-party runtime scripts that could access profile data
   expect(html).not.toMatch(/<script[^>]+src=[\"']https?:\/\//i);
   expect(html).not.toMatch(/myninja|daytona/i);
 });
+
+test('README states the local-only profile privacy boundary', () => {
+  const readme = read('README.md');
+  expect(readme).toMatch(/profile configuration, cookies, and browser data on the local machine/i);
+  expect(readme).toMatch(/no profile upload or cloud sync endpoint/i);
+});

@@ -57,3 +57,6 @@ Report Control problems at [BotBrowser Control issues](https://github.com/botswi
 ## License
 
 MIT. See [LICENSE](LICENSE).
+## Privacy boundary
+
+Control keeps profile configuration, cookies, and browser data on the local machine. It has no profile upload or cloud sync endpoint. Network requests are limited to release metadata, explicitly selected update assets, and pages opened by the user.
