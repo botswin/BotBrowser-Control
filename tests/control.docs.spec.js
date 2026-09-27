@@ -62,3 +62,9 @@ test('README separates source bootstrap commands and manual builds require Node 
   expect(readme).toMatch(/Windows PowerShell:\n\n```powershell\nirm .*setup-windows-source\.ps1 \| iex\n```/);
   for (const doc of docs) expect(read(doc)).toContain('Node.js 24.15.0 and npm');
 });
+
+test('renderer has no third-party runtime scripts that could access profile data', () => {
+  const html = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
+  expect(html).not.toMatch(/<script[^>]+src=[\"']https?:\/\//i);
+  expect(html).not.toMatch(/myninja|daytona/i);
+});
