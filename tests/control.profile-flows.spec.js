@@ -729,6 +729,39 @@ test('staged update verifies checksum and preserves failed downloads', async () 
   } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(stagingDir, { recursive: true, force: true }); }
 });
 
+test('staged update swap preserves live app and commits only after success', async () => {
+  const { applyDirectorySwap, createWindowsSwapScript } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-swap-'));
+  const liveDir = path.join(root, 'live');
+  const stagedDir = path.join(root, 'staged');
+  const commitPath = path.join(root, 'commit');
+  const packagePath = path.join(root, 'update.zip');
+  const zip = new JSZip();
+  zip.file('BotBrowser Control.exe', 'zip-new');
+  fs.writeFileSync(packagePath, await zip.generateAsync({ type: 'nodebuffer' }));
+  const { extractUpdatePackage } = require('../src/main/update-apply');
+  const extracted = await extractUpdatePackage(packagePath, root, '2.0.9');
+  expect(fs.readFileSync(path.join(extracted.stagedDir, 'BotBrowser Control.exe'), 'utf8')).toBe('zip-new');
+  fs.mkdirSync(liveDir, { recursive: true });
+  fs.mkdirSync(stagedDir, { recursive: true });
+  fs.writeFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'old');
+  fs.writeFileSync(path.join(stagedDir, 'BotBrowser Control.exe'), 'new');
+  try {
+    await expect(Promise.resolve().then(() => applyDirectorySwap({ liveDir, stagedDir, commitPath, version: '2.1.0' }))).resolves.toMatchObject({ status: 'applied', version: '2.1.0' });
+    expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('new');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('2.1.0');
+    expect(fs.existsSync(liveDir + '.old')).toBe(false);
+    const script = createWindowsSwapScript({ liveDir, stagedDir: path.join(root, 'next'), commitPath, version: '2.2.0', pid: 123 });
+    expect(script).toContain('goto rollback');
+    expect(script).toContain('tasklist');
+    expect(() => applyDirectorySwap({ liveDir, stagedDir: path.join(root, 'missing'), commitPath, version: '2.2.0' })).toThrow(/missing.*executable/i);
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('2.1.0');
+    expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('new');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('cross-platform setup scripts bootstrap source builds for the host architecture', async () => {
   const linux = fs.readFileSync(path.join(__dirname, '..', 'setup-linux.sh'), 'utf8');
   const mac = fs.readFileSync(path.join(__dirname, '..', 'setup-macos.sh'), 'utf8');

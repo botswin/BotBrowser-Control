@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('api', {
     stageUpdate: (options) => ipcRenderer.invoke('app:stageUpdate', options),
     getStagedUpdate: (version) => ipcRenderer.invoke('app:getStagedUpdate', version),
     cancelStagedUpdate: (version) => ipcRenderer.invoke('app:cancelStagedUpdate', version),
+    applyStagedUpdate: (version) => ipcRenderer.invoke('app:applyStagedUpdate', version),
   },
 
   // Platform info
