@@ -1,8 +1,11 @@
 ﻿const { test, expect } = require('@playwright/test');
 const { getProcessExitEvents } = require('../src/main/process-exit');
-let app; let page;
-test.beforeEach(async () => { app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd() }); page = await app.firstWindow(); await page.waitForLoadState('domcontentloaded'); await expect(page).toHaveTitle(/BotBrowser Control/i); });
-test.afterEach(async () => { if (app) await app.close(); app = null; });
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+let app; let page; let userDataDir;
+test.beforeEach(async () => { userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-functional-')); app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd(), env: { ...process.env, BOTBROWSER_TEST_USER_DATA_DIR: userDataDir } }); page = await app.firstWindow(); await page.waitForLoadState('domcontentloaded'); await expect(page).toHaveTitle(/BotBrowser Control/i); });
+test.afterEach(async () => { try { if (app) await app.close(); } finally { app = null; if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true }); userDataDir = null; } });
 test('starts main window and preload contract', async () => { const api = await page.evaluate(() => ({ platform: window.api.platform, profiles: Object.keys(window.api.profiles), browser: Object.keys(window.api.browser), kernel: Object.keys(window.api.kernel) })); expect(api.platform).toBeTruthy(); expect(api.profiles).toEqual(expect.arrayContaining(['getAll', 'create', 'update', 'delete'])); expect(api.browser).toEqual(expect.arrayContaining(['launch', 'stop', 'getRunning'])); expect(api.kernel).toEqual(expect.arrayContaining(['getCachedReleases', 'listInstalled'])); });
 test('profile CRUD persists through store', async () => { const r = await page.evaluate(async () => { const p = await window.api.profiles.create({ name: 'Playwright baseline', cookies: '[{"name":"sid","value":"fixture"}]' }); const u = await window.api.profiles.update(p.id, { proxyServer: 'http://127.0.0.1:8080' }); const all = await window.api.profiles.getAll(); await window.api.profiles.delete(p.id); return { p, u, all }; }); expect(r.p.name).toBe('Playwright baseline'); expect(r.u.proxyServer).toBe('http://127.0.0.1:8080'); expect(r.all.some(p => p.id === r.p.id)).toBeTruthy(); });
 test('settings and proxy validation IPC are observable', async () => { const r = await page.evaluate(async () => { const old = await window.api.settings.get(); await window.api.settings.set({ defaultProxy: 'http://127.0.0.1:9' }); const s = await window.api.settings.get(); let error = ''; try { await window.api.proxy.checkIp('not-a-proxy'); } catch (e) { error = e.message; } await window.api.settings.set({ defaultProxy: old.defaultProxy }); return { s, error }; }); expect(r.s.defaultProxy).toBe('http://127.0.0.1:9'); expect(r.error).toMatch(/invalid proxy|ENOTFOUND|proxy/i); });

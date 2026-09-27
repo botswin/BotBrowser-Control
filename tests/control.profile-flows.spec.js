@@ -87,9 +87,10 @@ test('stages a release package after a bounded HTTP redirect', async () => {
 
 let app;
 let page;
+let userDataDir;
 
 async function launchApp(env = {}) {
-  app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd(), env: { ...process.env, ...env } });
+  app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd(), env: { ...process.env, ...env, BOTBROWSER_TEST_USER_DATA_DIR: userDataDir } });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await expect(page).toHaveTitle(/BotBrowser Control/i);
@@ -137,8 +138,8 @@ function createCdpServer(cookies) {
   return server;
 }
 
-test.beforeEach(() => launchApp({ BOTBROWSER_TEST_HOLD_MS: '300000' }));
-test.afterEach(async () => { if (app) await app.close(); app = null; });
+test.beforeEach(async () => { userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-profile-flows-')); await launchApp({ BOTBROWSER_TEST_HOLD_MS: '300000' }); });
+test.afterEach(async () => { try { if (app) await app.close(); } finally { app = null; if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true }); userDataDir = null; } });
 
 test('profile UI creates, edits, duplicates, searches, and deletes a profile', async () => {
   const name = `Profile flow ${Date.now()}`;

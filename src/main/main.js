@@ -21,6 +21,10 @@ const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-s
 const { extractUpdatePackage, createWindowsSwapScript } = require('./update-apply');
 
 // ─── Fix app name BEFORE anything else ───
+const testUserDataDir = process.env.BOTBROWSER_TEST_USER_DATA_DIR;
+if (testUserDataDir && path.isAbsolute(testUserDataDir)) {
+  app.setPath('userData', testUserDataDir);
+}
 app.setName('BotBrowser Control');
 
 // ─── Platform-aware defaults ──────────────────────────────────────────────────
