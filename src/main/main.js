@@ -230,17 +230,24 @@ ipcMain.handle('profiles:importCsv', (_, source) => {
   if (!source || !path.isAbsolute(source)) throw new Error('Invalid import path');
   const rows = parseCsv(fs.readFileSync(source, 'utf8'));
   if (!rows.length) throw new Error('CSV is empty');
-  const headers = rows[0];
-  if (headers.some(header => !CSV_FIELDS.includes(header)) || !headers.includes('name')) throw new Error('Unknown or missing CSV columns');
-  const profiles = store.get('profiles', []); const names = new Set(profiles.map(profile => profile.name)); const created = [];
-  for (const values of rows.slice(1)) {
+  const headers = rows[0].map(header => header.replace(/^\uFEFF/, '').trim());
+  const unknown = headers.filter(header => !CSV_FIELDS.includes(header));
+  if (unknown.length) throw new Error(`Unknown CSV columns: ${unknown.join(', ')}`);
+  const missing = ['name'].filter(field => !headers.includes(field));
+  if (missing.length) throw new Error(`Missing required CSV columns: ${missing.join(', ')}`);
+  if (rows.length === 1) throw new Error('CSV contains no profile rows');
+  const profiles = store.get('profiles', []); const names = new Set(profiles.map(profile => profile.name)); const created = []; const errors = [];
+  for (const [offset, values] of rows.slice(1).entries()) {
+    const row = offset + 2;
     const data = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
-    if (!data.name.trim()) throw new Error('CSV profile name is required');
+    if (!data.name.trim()) { errors.push({ row, error: 'Profile name is required' }); continue; }
     let name = data.name.trim(); let suffix = 2; while (names.has(name)) name = `${data.name.trim()} (Imported ${suffix++})`;
     names.add(name); const profile = { ...data, name, id: require('crypto').randomUUID(), status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     profiles.push(profile); created.push(profile);
   }
-  store.set('profiles', profiles); return { count: created.length, profiles: created };
+  if (!created.length && errors.length) throw new Error(`CSV import failed: ${errors.map(item => `row ${item.row}: ${item.error}`).join('; ')}`);
+  if (created.length) store.set('profiles', profiles);
+  return { count: created.length, profiles: created, errors };
 });
 
 ipcMain.handle('proxies:getAll', () => store.get('proxies', []));

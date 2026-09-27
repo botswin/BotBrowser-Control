@@ -994,8 +994,12 @@
   async function importCsv() {
     const source = await window.api.dialog.openFile({ filters: [{ name: 'CSV', extensions: ['csv'] }] });
     if (!source) return;
-    try { const result = await window.api.profiles.importCsv(source); await loadProfiles(); renderView(); showToast(`Imported ${result.count} profiles`, 'success'); }
-    catch (error) { showToast(error.message, 'error'); }
+    try {
+      const result = await window.api.profiles.importCsv(source);
+      await loadProfiles(); renderView();
+      const summary = result.errors?.length ? `; ${result.errors.length} skipped (${result.errors.map(item => `row ${item.row}: ${item.error}`).join(', ')})` : '';
+      showToast(`Imported ${result.count} profiles${summary}`, result.errors?.length ? 'error' : 'success');
+    } catch (error) { showToast(error.message, 'error'); }
   }
 
   async function submitProxyImport() {

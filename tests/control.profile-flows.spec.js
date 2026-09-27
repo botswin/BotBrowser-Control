@@ -720,3 +720,49 @@ test('cross-platform setup scripts bootstrap source builds for the host architec
   expect(windows).toContain("'npm.cmd') run build:win:x64");
   expect(windows).toContain('BotBrowser Control.lnk');
 });
+
+
+test('profile CSV reports unknown and missing required columns separately', async () => {
+  const unknownPath = path.join(os.tmpdir(), `botbrowser-profile-csv-unknown-${Date.now()}.csv`);
+  const missingPath = path.join(os.tmpdir(), `botbrowser-profile-csv-missing-${Date.now()}.csv`);
+  try {
+    fs.writeFileSync(unknownPath, 'name,unexpected\nvalid,value\n', 'utf8');
+    fs.writeFileSync(missingPath, 'startUrl,notes\nhttps://example.test,missing name\n', 'utf8');
+    await expect(page.evaluate(source => window.api.profiles.importCsv(source), unknownPath)).rejects.toThrow(/Unknown CSV columns: unexpected/);
+    await expect(page.evaluate(source => window.api.profiles.importCsv(source), missingPath)).rejects.toThrow(/Missing required CSV columns: name/);
+  } finally {
+    fs.rmSync(unknownPath, { force: true });
+    fs.rmSync(missingPath, { force: true });
+  }
+});
+
+test('profile CSV imports valid rows and returns row-level errors for invalid rows', async () => {
+  const csvPath = path.join(os.tmpdir(), `botbrowser-profile-csv-errors-${Date.now()}.csv`);
+  const prefix = `CSV batch ${Date.now()}`;
+  try {
+    fs.writeFileSync(csvPath, `name,startUrl\n${prefix} one,https://one.test\n,https://invalid.test\n${prefix} two,https://two.test\n`, 'utf8');
+    const result = await page.evaluate(source => window.api.profiles.importCsv(source), csvPath);
+    expect(result.count).toBe(2);
+    expect(result.errors).toEqual([{ row: 3, error: 'Profile name is required' }]);
+    expect(result.profiles.map(item => item.name)).toEqual([`${prefix} one`, `${prefix} two`]);
+  } finally {
+    for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name.startsWith(prefix)) await page.evaluate(id => window.api.profiles.delete(id), item.id);
+    fs.rmSync(csvPath, { force: true });
+  }
+});
+
+test('profile CSV rejects empty files and header-only files without changing profiles', async () => {
+  const emptyPath = path.join(os.tmpdir(), `botbrowser-profile-csv-empty-${Date.now()}.csv`);
+  const headerPath = path.join(os.tmpdir(), `botbrowser-profile-csv-header-${Date.now()}.csv`);
+  const before = await page.evaluate(() => window.api.profiles.getAll());
+  try {
+    fs.writeFileSync(emptyPath, '', 'utf8');
+    fs.writeFileSync(headerPath, 'name,startUrl\n', 'utf8');
+    await expect(page.evaluate(source => window.api.profiles.importCsv(source), emptyPath)).rejects.toThrow(/CSV is empty/);
+    await expect(page.evaluate(source => window.api.profiles.importCsv(source), headerPath)).rejects.toThrow(/CSV contains no profile rows/);
+    expect(await page.evaluate(() => window.api.profiles.getAll())).toEqual(before);
+  } finally {
+    fs.rmSync(emptyPath, { force: true });
+    fs.rmSync(headerPath, { force: true });
+  }
+});
