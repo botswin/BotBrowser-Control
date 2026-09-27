@@ -14,7 +14,60 @@ const { parseCsv } = require('../src/main/csv');
 const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('../src/main/release-manifest');
 const { stageUpdate } = require('../src/main/update-stage');
+const { cleanupOldKernelVersions } = require('../src/main/kernel-retention');
 const rendererSource = fs.readFileSync(path.join(__dirname, '../src/renderer/js/app.js'), 'utf8');
+
+test('kernel retention keeps latest full version per major and protected versions', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'control-kernel-retention-'));
+  const versions = ['147.0.1.0', '147.0.2.0', '147.0.3.0', '148.0.1.0', '148.0.2.0', 'not-a-version'];
+  try {
+    for (const version of versions) fs.mkdirSync(path.join(root, version));
+    const removed = cleanupOldKernelVersions(root, new Set(['147.0.1.0']));
+    expect(removed.sort()).toEqual(['147.0.2.0', '148.0.1.0']);
+    expect(fs.existsSync(path.join(root, '147.0.1.0'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '147.0.3.0'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '148.0.2.0'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'not-a-version'))).toBe(true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('kernel delete rejects traversal and absolute paths without touching a parent directory', async () => {
+  const kernelsDir = await page.evaluate(() => window.api.kernel.getDir());
+  const outsideDir = path.join(path.dirname(kernelsDir), 'kernel-delete-outside-' + process.pid + '-' + Date.now());
+  const marker = path.join(outsideDir, 'marker.txt');
+  fs.mkdirSync(outsideDir, { recursive: true });
+  fs.writeFileSync(marker, 'keep', 'utf8');
+  try {
+    expect(await page.evaluate(version => window.api.kernel.delete(version), '../' + path.basename(outsideDir))).toBe(false);
+    expect(await page.evaluate(version => window.api.kernel.delete(version), outsideDir)).toBe(false);
+    expect(fs.existsSync(marker)).toBe(true);
+  } finally {
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+
+test('successful kernel extraction removes the downloaded archive', async () => {
+  const archive = await new JSZip().file('kernel-fixture.exe', 'MZ archive fixture').generateAsync({ type: 'nodebuffer' });
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'content-length': archive.length, 'content-type': 'application/zip' });
+    response.end(archive);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const version = '149.0.' + Date.now() + '.0';
+  try {
+    const result = await page.evaluate(({ url, version }) => window.api.kernel.download({
+      downloadUrl: url, fileName: 'kernel-fixture.zip', version
+    }), { url: 'http://127.0.0.1:' + server.address().port + '/kernel.zip', version });
+    expect(result.installStatus).toBe('extracted');
+    expect(fs.existsSync(result.destPath)).toBe(false);
+    expect(fs.existsSync(result.execPath)).toBe(true);
+  } finally {
+    await page.evaluate(version => window.api.kernel.delete(version), version);
+    await new Promise(resolve => server.close(resolve));
+  }
+});
 
 test('Control release manifest selects exact electron-builder Windows ZIP assets with tag-bound URLs', () => {
   const digest = `sha256:${'a'.repeat(64)}`;

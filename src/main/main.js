@@ -19,6 +19,7 @@ const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
 const { extractUpdatePackage, createWindowsSwapScript } = require('./update-apply');
+const { cleanupOldKernelVersions } = require('./kernel-retention');
 
 // ─── Fix app name BEFORE anything else ───
 const testUserDataDir = process.env.BOTBROWSER_TEST_USER_DATA_DIR;
@@ -1014,8 +1015,22 @@ ipcMain.handle('kernel:listInstalled', () => {
     });
 });
 
+function getKernelVersionDir(version) {
+  if (typeof version !== 'string' || version.length === 0 || version === '.' || version === '..' || /[\\/]/.test(version)) {
+    return null;
+  }
+  const kernelsDir = path.resolve(getKernelsDir());
+  const versionDir = path.resolve(kernelsDir, version);
+  const relative = path.relative(kernelsDir, versionDir);
+  if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+    return null;
+  }
+  return versionDir;
+}
+
 ipcMain.handle('kernel:delete', (_, version) => {
-  const dir = path.join(getKernelsDir(), version);
+  const dir = getKernelVersionDir(version);
+  if (!dir) return false;
   if (fs.existsSync(dir)) {
     fs.rmSync(dir, { recursive: true, force: true });
     return true;
@@ -1203,6 +1218,11 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
     installStatus, installNote,
   };
   fs.writeFileSync(path.join(versionDir, '.meta.json'), JSON.stringify(meta, null, 2), 'utf8');
+
+  if ((installStatus === 'installed' || installStatus === 'extracted') && /\.(?:dmg|deb|7z|zip)$/i.test(fileName)) {
+    try { fs.rmSync(destPath, { force: true }); } catch {}
+  }
+  cleanupOldKernelVersions(kernelsDir, new Set([version, ...kernelDownloads.keys()]));
 
   mainWindow?.webContents.send('kernel:downloadComplete', { version, execPath, destPath, installStatus, installNote });
   return { version, execPath, destPath, installStatus, installNote };
