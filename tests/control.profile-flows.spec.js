@@ -698,7 +698,14 @@ test('staged update verifies checksum and preserves failed downloads', async () 
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-'));
   try {
     const staged = await stageUpdate({ url: `http://127.0.0.1:${server.address().port}/update`, sha256: hash, version: '2.0.0', stagingDir });
+    expect(staged).toMatchObject({ status: 'staged', version: '2.0.0', sha256: hash });
     expect(fs.readFileSync(staged.path)).toEqual(payload);
+    expect(fs.existsSync(path.join(stagingDir, '2.0.0.json'))).toBe(true);
+    expect(await stageUpdate({ url: `http://127.0.0.1:${server.address().port}/update`, sha256: hash, version: '2.0.0', stagingDir })).toMatchObject({ status: 'staged' });
+    expect(require('../src/main/update-stage').getStagedUpdate({ stagingDir, version: '2.0.0' })).toMatchObject({ status: 'staged', version: '2.0.0' });
+    expect(require('../src/main/update-stage').cancelStagedUpdate({ stagingDir, version: '2.0.0' })).toBe(true);
+    expect(fs.existsSync(path.join(stagingDir, '2.0.0.package'))).toBe(false);
+    expect(fs.existsSync(path.join(stagingDir, '2.0.0.json'))).toBe(false);
     await expect(stageUpdate({ url: `http://127.0.0.1:${server.address().port}/update`, sha256: 'a'.repeat(64), version: '2.0.1', stagingDir })).rejects.toThrow(/checksum/);
     expect(fs.existsSync(path.join(stagingDir, '.2.0.1.part'))).toBe(false);
   } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(stagingDir, { recursive: true, force: true }); }
