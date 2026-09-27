@@ -927,6 +927,7 @@ ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stag
 ipcMain.handle('app:getStagedUpdate', (_, version) => getStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:cancelStagedUpdate', (_, version) => cancelStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
+  if (!IS_WIN) throw new Error('Staged updates can only be applied on Windows');
   const stagingRoot = path.join(app.getPath('userData'), 'updates');
   const pending = getStagedUpdate({ stagingDir: stagingRoot, version });
   if (!pending) throw new Error('No staged update found');

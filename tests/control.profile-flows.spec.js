@@ -15,6 +15,7 @@ const { validateWarmupUrl, runWarmupUrls } = require('../src/main/warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('../src/main/release-manifest');
 const { stageUpdate } = require('../src/main/update-stage');
 const { cleanupOldKernelVersions } = require('../src/main/kernel-retention');
+const mainSource = fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8');
 const rendererSource = fs.readFileSync(path.join(__dirname, '../src/renderer/js/app.js'), 'utf8');
 
 test('kernel retention keeps latest full version per major and protected versions', () => {
@@ -117,6 +118,15 @@ test('Control release manifest recognizes exact macOS and Linux workflow assets'
       : `https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-mac.zip${suffix}`;
     expect(() => selectReleaseAsset({ ...manifest, assets: [{ ...manifest.assets[0], url }] }, 'darwin', 'x64', 'zip')).toThrow(/URL/i);
   }
+});
+
+test('non-Windows staged update is rejected and renderer offers only the release handoff', () => {
+  const applyHandler = mainSource.match(/ipcMain\.handle\('app:applyStagedUpdate',[\s\S]*?\n\}\);/);
+  expect(applyHandler).not.toBeNull();
+  expect(applyHandler[0]).toMatch(/if \(!IS_WIN\) throw new Error\('Staged updates can only be applied on Windows'\);/);
+  expect(applyHandler[0].indexOf('if (!IS_WIN)')).toBeLessThan(applyHandler[0].indexOf('getStagedUpdate'));
+  expect(rendererSource).toContain('const canApply = IS_WIN && showControl && Boolean(stagedControlUpdate);');
+  expect(rendererSource).toContain('const controlAction = canApply');
 });
 
 test('Control renderer downloads and applies staged update through real DOM interactions', async () => {
