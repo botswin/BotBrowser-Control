@@ -189,8 +189,8 @@ jobs:
               ('darwin', 'arm64', 'zip', 'mac-builds', f'BotBrowser Control-{version}-arm64-mac.zip'),
               ('linux', 'x64', 'appimage', 'linux-builds', f'BotBrowser Control-{version}.AppImage'),
               ('linux', 'arm64', 'appimage', 'linux-builds', f'BotBrowser Control-{version}-arm64.AppImage'),
-              ('linux', 'x64', 'tar.gz', 'linux-builds', f'BotBrowser Control-{version}.tar.gz'),
-              ('linux', 'arm64', 'tar.gz', 'linux-builds', f'BotBrowser Control-{version}-arm64.tar.gz'),
+              ('linux', 'x64', 'tar.gz', 'linux-builds', f'botbrowser-control-{version}.tar.gz'),
+              ('linux', 'arm64', 'tar.gz', 'linux-builds', f'botbrowser-control-{version}-arm64.tar.gz'),
           ]
           assets = []
           for platform, arch, format, directory, name in specs:

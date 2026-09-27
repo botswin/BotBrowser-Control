@@ -96,8 +96,8 @@ test('Control release manifest recognizes exact macOS and Linux workflow assets'
     ['darwin', 'arm64', 'zip', 'BotBrowser Control-1.2.3-arm64-mac.zip'],
     ['linux', 'x64', 'appimage', 'BotBrowser Control-1.2.3.AppImage'],
     ['linux', 'arm64', 'appimage', 'BotBrowser Control-1.2.3-arm64.AppImage'],
-    ['linux', 'x64', 'tar.gz', 'BotBrowser Control-1.2.3.tar.gz'],
-    ['linux', 'arm64', 'tar.gz', 'BotBrowser Control-1.2.3-arm64.tar.gz'],
+    ['linux', 'x64', 'tar.gz', 'botbrowser-control-1.2.3.tar.gz'],
+    ['linux', 'arm64', 'tar.gz', 'botbrowser-control-1.2.3-arm64.tar.gz'],
   ];
   const releaseAssets = names.map(([, , , name]) => ({
     name,
@@ -945,12 +945,12 @@ test('release manifest selects exact platform asset and requires checksum', asyn
   const manifest = { version: '1.2.3', assets: [
     { platform: 'win32', arch: 'x64', format: 'zip', version: '1.2.3', name: 'BotBrowser Control-1.2.3-win.zip', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip', sha256: 'a'.repeat(64) },
     { platform: 'linux', arch: 'x64', format: 'appimage', version: '1.2.3', name: 'BotBrowser Control-1.2.3.AppImage', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3.AppImage', sha256: 'b'.repeat(64) },
-    { platform: 'linux', arch: 'x64', format: 'tar.gz', version: '1.2.3', name: 'BotBrowser Control-1.2.3.tar.gz', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3.tar.gz', sha256: 'c'.repeat(64) }
+    { platform: 'linux', arch: 'x64', format: 'tar.gz', version: '1.2.3', name: 'botbrowser-control-1.2.3.tar.gz', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/botbrowser-control-1.2.3.tar.gz', sha256: 'c'.repeat(64) }
   ] };
   expect(selectReleaseAsset(manifest, 'win32', 'x64')).toMatchObject({ version: '1.2.3', platform: 'win32' });
   expect(() => selectReleaseAsset(manifest, 'win32', 'arm64')).toThrow(/Missing/);
   await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'linux', arch: 'x64', format: 'appimage' })).resolves.toMatchObject({ name: 'BotBrowser Control-1.2.3.AppImage', format: 'appimage' });
-  await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'linux', arch: 'x64', format: 'tar.gz' })).resolves.toMatchObject({ name: 'BotBrowser Control-1.2.3.tar.gz', format: 'tar.gz' });
+  await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'linux', arch: 'x64', format: 'tar.gz' })).resolves.toMatchObject({ name: 'botbrowser-control-1.2.3.tar.gz', format: 'tar.gz' });
   expect(() => selectReleaseAsset({ ...manifest, assets: [{ platform: 'win32', arch: 'x64', format: 'zip', version: '1.2.3', name: 'BotBrowser Control-1.2.3-win.zip', url: 'x' }] }, 'win32', 'x64')).toThrow(/checksum|URL/i);
   await expect(page.evaluate(options => window.api.app.selectReleaseAsset(options), { manifest, platform: 'win32', arch: 'x64' })).resolves.toMatchObject({ version: '1.2.3' });
 });

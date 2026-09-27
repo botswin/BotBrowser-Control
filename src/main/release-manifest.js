@@ -9,8 +9,8 @@ function releaseAssetSpecs(version) {
     { platform: 'darwin', arch: 'arm64', format: 'zip', name: `BotBrowser Control-${version}-arm64-mac.zip` },
     { platform: 'linux', arch: 'x64', format: 'appimage', name: `BotBrowser Control-${version}.AppImage` },
     { platform: 'linux', arch: 'arm64', format: 'appimage', name: `BotBrowser Control-${version}-arm64.AppImage` },
-    { platform: 'linux', arch: 'x64', format: 'tar.gz', name: `BotBrowser Control-${version}.tar.gz` },
-    { platform: 'linux', arch: 'arm64', format: 'tar.gz', name: `BotBrowser Control-${version}-arm64.tar.gz` },
+    { platform: 'linux', arch: 'x64', format: 'tar.gz', name: `botbrowser-control-${version}.tar.gz` },
+    { platform: 'linux', arch: 'arm64', format: 'tar.gz', name: `botbrowser-control-${version}-arm64.tar.gz` },
   ];
 }
 

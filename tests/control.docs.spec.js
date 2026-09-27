@@ -46,7 +46,9 @@ test('release workflow publishes the cross-platform manifest asset contract', ()
   expect(workflow).toContain("'format': format");
   expect(workflow).toContain("('darwin', 'x64', 'zip'");
   expect(workflow).toContain("('linux', 'arm64', 'appimage'");
-  expect(workflow).toContain("('linux', 'x64', 'tar.gz'");
+  expect(workflow).toContain("f'botbrowser-control-{version}.tar.gz'");
+  expect(workflow).toContain("f'botbrowser-control-{version}-arm64.tar.gz'");
+
   expect(workflow).toContain("'arch': arch");
   expect(workflow).toContain("'version': version");
   expect(workflow).toContain("'sha256': digest");
@@ -66,7 +68,8 @@ test('README separates source bootstrap commands and manual builds require Node 
 test('renderer has no third-party runtime scripts that could access profile data', () => {
   const html = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
   expect(html).not.toMatch(/<script[^>]+src=[\"']https?:\/\//i);
-  expect(html).not.toMatch(/myninja|daytona/i);
+  expect(html).not.toMatch(/<link[^>]+href=[\"']https?:\/\//i);
+  expect(html).not.toMatch(/myninja|daytona|fonts\.(googleapis|gstatic)\.com/i);
 });
 
 test('README states the local-only profile privacy boundary', () => {
