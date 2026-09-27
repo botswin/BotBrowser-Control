@@ -10,7 +10,7 @@ Create and manage local browser profiles, configure launch settings, and start o
 
 ## Install
 
-There is no published Control Release asset at this time. When a tagged Control release is published, download its assets only from the [BotBrowser Control Releases page](https://github.com/botswin/BotBrowser-Control/releases).
+When a tagged Control release is published, download its assets only from the [BotBrowser Control Releases page](https://github.com/botswin/BotBrowser-Control/releases). Releases include `manifest.json`, which lists the Windows `win32` x64 and arm64 ZIP URLs and their SHA-256 values for the Windows bootstrap installer.
 
 For the current main branch, use the source bootstrap script for your platform. It downloads the current main source, rebuilds Control locally, and replaces that source installation. Re-running it is a reinstall of current main, not an automatic application update.
 

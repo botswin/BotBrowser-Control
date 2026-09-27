@@ -166,3 +166,47 @@ jobs:
             artifacts/linux-builds/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Windows release manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - "$RELEASE_TAG" "$REPOSITORY" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          from urllib.parse import quote
+
+          tag, repository = sys.argv[1:]
+          if not tag.startswith('v'):
+              raise SystemExit(f'Expected a version tag, got {tag!r}')
+          version = tag[1:]
+          root = pathlib.Path('artifacts/windows-builds')
+          files = {
+              'x64': root / f'BotBrowser Control-{version}-win.zip',
+              'arm64': root / f'BotBrowser Control-{version}-arm64-win.zip',
+          }
+          assets = []
+          for arch, path in files.items():
+              if not path.is_file():
+                  raise SystemExit(f'Missing Windows {arch} asset: {path}')
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              assets.append({
+                  'platform': 'win32',
+                  'arch': arch,
+                  'version': version,
+                  'url': f'https://github.com/{repository}/releases/download/{quote(tag, safe="")}/{quote(path.name)}',
+                  'sha256': digest,
+              })
+          pathlib.Path('manifest.json').write_text(
+              json.dumps({'version': version, 'assets': assets}, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload Windows release manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" manifest.json --clobber

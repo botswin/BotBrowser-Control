@@ -27,10 +27,26 @@ test('INSTALL keeps Control assets separate from Kernel downloads', () => {
 
 test('public docs avoid unsupported release and update claims', () => {
   const text = docs.map(read).join('\n');
-  expect(text).toMatch(/does not currently publish Release assets/i);
+  expect(text).toMatch(/tagged Control releases publish the application assets/i);
   expect(text).toMatch(/reinstalls current `main`; it is not an automatic update service/i);
   expect(text).toContain('Windows x64 and arm64');
+  expect(text).toContain('manifest.json');
   expect(text).not.toMatch(/[\u2013\u2014]/);
+});
+
+test('release workflow publishes the Windows manifest asset contract', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build.yml'), 'utf8');
+  expect(workflow).toContain('name: Generate Windows release manifest');
+  expect(workflow).toContain("BotBrowser Control-{version}-win.zip");
+  expect(workflow).toContain("BotBrowser Control-{version}-arm64-win.zip");
+  expect(workflow).toContain('hashlib.sha256');
+  expect(workflow).toContain("'platform': 'win32'");
+  expect(workflow).toContain("'arch': arch");
+  expect(workflow).toContain("'version': version");
+  expect(workflow).toContain("'sha256': digest");
+  expect(workflow).toContain('releases/download/{quote(tag, safe="")}');
+  expect(workflow).toContain('gh release upload \"${{ github.ref_name }}\" manifest.json --clobber');
+  expect(workflow).not.toMatch(/continue-on-error/);
 });
 
 test('README separates source bootstrap commands and manual builds require Node 24', () => {
