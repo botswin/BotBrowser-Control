@@ -53,7 +53,11 @@ test('release workflow publishes the cross-platform manifest asset contract', ()
   expect(workflow).toContain("'version': version");
   expect(workflow).toContain("'sha256': digest");
   expect(workflow).toContain('releases/download/{quote(tag, safe="")}');
-  expect(workflow).toContain('gh release upload \"${{ github.ref_name }}\" manifest.json --clobber');
+  expect(workflow).not.toContain('gh release upload');
+  expect(workflow.indexOf('Generate cross-platform release manifest')).toBeLessThan(workflow.indexOf('Create GitHub Release'));
+  expect(workflow).toContain('            manifest.json');
+  expect(workflow).not.toContain('GH_TOKEN:');
+  expect(workflow).toContain('GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
   expect(workflow).not.toMatch(/continue-on-error/);
 });
 
