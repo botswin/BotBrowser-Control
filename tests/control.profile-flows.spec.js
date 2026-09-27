@@ -934,6 +934,45 @@ test('staged update swap preserves live app and commits only after success', asy
   }
 });
 
+test('POSIX staged swap owns its marker and restores the live fixture on failure', () => {
+  test.skip(process.platform === 'win32', 'POSIX owner test');
+  const { applyDirectorySwap, recoverDirectorySwap } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-posix-'));
+  const liveDir = path.join(root, 'live');
+  const stagedDir = path.join(root, 'staged');
+  const oldDir = path.join(root, 'live.old');
+  const markerPath = path.join(root, 'apply.marker');
+  const commitPath = path.join(root, 'commit');
+  const executableRelative = 'control-fixture';
+  try {
+    fs.mkdirSync(liveDir);
+    fs.writeFileSync(path.join(liveDir, executableRelative), 'old');
+    fs.mkdirSync(stagedDir);
+    fs.writeFileSync(path.join(stagedDir, executableRelative), 'new');
+    expect(applyDirectorySwap({ liveDir, stagedDir, oldDir, executableRelative, markerPath, commitPath, version: '3.0.0' })).toMatchObject({ status: 'applied' });
+    expect(fs.readFileSync(path.join(liveDir, executableRelative), 'utf8')).toBe('new');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('3.0.0');
+    expect(fs.existsSync(markerPath)).toBe(false);
+    expect(fs.existsSync(oldDir)).toBe(false);
+
+    fs.mkdirSync(stagedDir);
+    fs.writeFileSync(path.join(stagedDir, executableRelative), 'failed');
+    fs.unlinkSync(commitPath);
+    fs.mkdirSync(commitPath);
+    expect(() => applyDirectorySwap({ liveDir, stagedDir, oldDir, executableRelative, markerPath, commitPath, version: '4.0.0' })).toThrow();
+    expect(fs.readFileSync(path.join(liveDir, executableRelative), 'utf8')).toBe('new');
+    expect(fs.existsSync(markerPath)).toBe(false);
+
+    fs.renameSync(liveDir, oldDir);
+    fs.writeFileSync(markerPath, JSON.stringify({ status: 'applying' }));
+    recoverDirectorySwap({ liveDir, oldDir, markerPath });
+    expect(fs.readFileSync(path.join(liveDir, executableRelative), 'utf8')).toBe('new');
+    expect(fs.existsSync(markerPath)).toBe(false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows swap script executes an atomic temp-directory transaction', () => {
   test.skip(process.platform !== 'win32', 'Windows-only owner test');
   const { createWindowsSwapScript } = require('../src/main/update-apply');

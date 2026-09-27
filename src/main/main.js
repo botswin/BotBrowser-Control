@@ -18,7 +18,7 @@ const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
-const { extractUpdatePackage, createWindowsSwapScript } = require('./update-apply');
+const { extractUpdatePackage, applyDirectorySwap, createWindowsSwapScript } = require('./update-apply');
 const { cleanupOldKernelVersions } = require('./kernel-retention');
 
 // ─── Fix app name BEFORE anything else ───
@@ -910,12 +910,27 @@ ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stag
 ipcMain.handle('app:getStagedUpdate', (_, version) => getStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:cancelStagedUpdate', (_, version) => cancelStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
-  if (!IS_WIN) throw new Error('In-app update apply is currently supported on Windows only');
   const stagingRoot = path.join(app.getPath('userData'), 'updates');
   const pending = getStagedUpdate({ stagingDir: stagingRoot, version });
   if (!pending) throw new Error('No staged update found');
-  const extracted = await extractUpdatePackage(pending.path, stagingRoot, pending.version);
   const liveDir = path.dirname(process.execPath);
+  if (!IS_WIN) {
+    const executableName = path.basename(process.execPath);
+    const extracted = await extractUpdatePackage(pending.path, stagingRoot, pending.version, executableName);
+    const executableRelative = path.relative(extracted.stagedDir, extracted.executablePath);
+    const result = applyDirectorySwap({
+      liveDir,
+      stagedDir: extracted.stagedDir,
+      executableRelative,
+      version: pending.version,
+      commitPath: path.join(stagingRoot, 'current.version'),
+      markerPath: path.join(stagingRoot, `.${pending.version}.apply.json`),
+    });
+    app.relaunch();
+    setTimeout(() => app.exit(0), 150);
+    return { ...result, status: 'scheduled' };
+  }
+  const extracted = await extractUpdatePackage(pending.path, stagingRoot, pending.version);
   const scriptPath = path.join(stagingRoot, `.${pending.version}.apply.cmd`);
   const script = createWindowsSwapScript({ liveDir, stagedDir: extracted.stagedDir, version: pending.version, commitPath: path.join(stagingRoot, 'current.version'), pid: process.pid });
   fs.writeFileSync(scriptPath, script, 'utf8');

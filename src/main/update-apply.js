@@ -53,31 +53,57 @@ function findExecutable(root, executableName) {
   return null;
 }
 
-function applyDirectorySwap({ liveDir, stagedDir, oldDir = `${liveDir}.old`, executableRelative = 'BotBrowser Control.exe', commitPath, version }) {
+function writeAtomic(filePath, value) {
+  const tempPath = `${filePath}.part`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(tempPath, value, 'utf8');
+  fs.renameSync(tempPath, filePath);
+}
+
+function recoverDirectorySwap({ liveDir, oldDir, markerPath }) {
+  if (!fs.existsSync(markerPath)) return;
+  if (!fs.existsSync(liveDir) && fs.existsSync(oldDir)) {
+    fs.renameSync(oldDir, liveDir);
+  } else if (fs.existsSync(liveDir) && fs.existsSync(oldDir)) {
+    fs.rmSync(oldDir, { recursive: true, force: true });
+  }
+  fs.rmSync(markerPath, { force: true });
+}
+
+function applyDirectorySwap({ liveDir, stagedDir, oldDir = `${liveDir}.old`, executableRelative = 'BotBrowser Control.exe', commitPath, markerPath, version }) {
   assertAbsolute('live directory', liveDir);
   assertAbsolute('staged directory', stagedDir);
   assertAbsolute('old directory', oldDir);
   assertSafeVersion(version);
   if (commitPath) assertAbsolute('commit path', commitPath);
+  if (markerPath) assertAbsolute('marker path', markerPath);
   const stagedExecutable = path.join(stagedDir, executableRelative);
   if (!fs.existsSync(stagedExecutable)) throw new Error('Staged update is missing the application executable');
+  const transactionMarker = markerPath || `${oldDir}.marker`;
+  recoverDirectorySwap({ liveDir, oldDir, markerPath: transactionMarker });
   fs.rmSync(oldDir, { recursive: true, force: true });
   let movedLive = false;
+  let transactionStarted = false;
   try {
+    writeAtomic(transactionMarker, JSON.stringify({ status: 'applying', liveDir, stagedDir, oldDir, version }));
+    transactionStarted = true;
     if (fs.existsSync(liveDir)) { fs.renameSync(liveDir, oldDir); movedLive = true; }
     fs.renameSync(stagedDir, liveDir);
     if (!fs.existsSync(path.join(liveDir, executableRelative))) throw new Error('Updated application executable is missing');
     if (commitPath) {
-      const temp = `${commitPath}.part`;
-      fs.mkdirSync(path.dirname(commitPath), { recursive: true });
-      fs.writeFileSync(temp, version, 'utf8');
-      fs.renameSync(temp, commitPath);
+      writeAtomic(commitPath, version);
     }
     fs.rmSync(oldDir, { recursive: true, force: true });
+    fs.rmSync(transactionMarker, { force: true });
     return { status: 'applied', version, liveDir };
   } catch (error) {
-    fs.rmSync(liveDir, { recursive: true, force: true });
-    if (movedLive && fs.existsSync(oldDir)) fs.renameSync(oldDir, liveDir);
+    try {
+      fs.rmSync(liveDir, { recursive: true, force: true });
+      if (movedLive && fs.existsSync(oldDir)) fs.renameSync(oldDir, liveDir);
+      if (transactionStarted) fs.rmSync(transactionMarker, { force: true });
+    } catch {
+      // Keep the marker when rollback itself fails so the next launch can recover.
+    }
     throw error;
   }
 }
@@ -97,4 +123,4 @@ function createWindowsSwapScript({ liveDir, stagedDir, oldDir = `${liveDir}.old`
   return `@echo off\r\nsetlocal\r\nset "movedLive=0"\r\n${wait}if exist "${oldDir}" (\r\n  if exist "${liveDir}" (\r\n    rmdir /s /q "${oldDir}" >nul 2>&1\r\n    if errorlevel 1 goto failed\r\n    if exist "${oldDir}" goto failed\r\n  ) else (\r\n    move "${oldDir}" "${liveDir}" >nul 2>&1\r\n    if errorlevel 1 goto failed\r\n    if not exist "${liveExe}" goto failed\r\n  )\r\n)\r\nif not exist "${stagedExe}" goto failed\r\nif exist "${liveDir}" (\r\n  move "${liveDir}" "${oldDir}" >nul 2>&1\r\n  if errorlevel 1 goto failed\r\n  if exist "${liveDir}" goto failed\r\n  set "movedLive=1"\r\n)\r\nmove "${stagedDir}" "${liveDir}" >nul 2>&1\r\nif errorlevel 1 goto rollback\r\nif exist "${stagedDir}" goto rollback\r\nif not exist "${liveExe}" goto rollback\r\n${commit}set "swapSucceeded=1"\r\nif exist "${oldDir}" if exist "${liveDir}" rmdir /s /q "${oldDir}" >nul 2>&1\r\nif "%swapSucceeded%"=="1" start "" "${relaunch}"\r\nset "exitCode=0"\r\ngoto done\r\n:rollback\r\nif exist "${liveDir}" (\r\n  rmdir /s /q "${liveDir}" >nul 2>&1\r\n  if exist "${liveDir}" goto failed\r\n)\r\nif "%movedLive%"=="1" (\r\n  move "${oldDir}" "${liveDir}" >nul 2>&1\r\n  if errorlevel 1 goto failed\r\n  if not exist "${liveExe}" goto failed\r\n)\r\n:failed\r\nif exist "${commitTemp}" del /f /q "${commitTemp}" >nul 2>&1\r\nset "exitCode=1"\r\n:done\r\nexit /b %exitCode%\r\n`;
 }
 
-module.exports = { extractUpdatePackage, applyDirectorySwap, createWindowsSwapScript, findExecutable };
+module.exports = { extractUpdatePackage, applyDirectorySwap, createWindowsSwapScript, findExecutable, recoverDirectorySwap };
