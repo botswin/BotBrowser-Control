@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const http = require('node:http');
 const net = require('node:net');
+const childProcess = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -841,6 +842,70 @@ test('staged update swap preserves live app and commits only after success', asy
     expect(() => applyDirectorySwap({ liveDir, stagedDir: path.join(root, 'missing'), commitPath, version: '2.2.0' })).toThrow(/missing.*executable/i);
     expect(fs.readFileSync(commitPath, 'utf8')).toBe('2.1.0');
     expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('new');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Windows swap script executes an atomic temp-directory transaction', () => {
+  test.skip(process.platform !== 'win32', 'Windows-only owner test');
+  const { createWindowsSwapScript } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-windows-'));
+  const liveDir = path.join(root, 'live');
+  const stagedDir = path.join(root, 'staged');
+  const oldDir = `${liveDir}.old`;
+  const commitPath = path.join(root, 'commit');
+  const relaunchExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'where.exe');
+  const runScript = (script, name) => {
+    const scriptPath = path.join(root, name);
+    fs.writeFileSync(scriptPath, script, 'utf8');
+    return childProcess.spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/c', scriptPath], {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+  };
+  try {
+
+    fs.mkdirSync(liveDir);
+    fs.mkdirSync(stagedDir);
+    fs.writeFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'old');
+    fs.writeFileSync(path.join(stagedDir, 'BotBrowser Control.exe'), 'new');
+    fs.writeFileSync(commitPath, 'before');
+    let result = runScript(createWindowsSwapScript({ liveDir, stagedDir, oldDir, commitPath, version: '2.2.0', relaunchExe }), 'success.cmd');
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('new');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('2.2.0\r\n');
+    expect(fs.existsSync(oldDir)).toBe(false);
+
+    const blockedStage = path.join(root, 'blocked-stage');
+    fs.mkdirSync(blockedStage);
+    fs.writeFileSync(path.join(blockedStage, 'BotBrowser Control.exe'), 'blocked');
+    fs.writeFileSync(commitPath, '2.2.0\r\n');
+    result = runScript(createWindowsSwapScript({
+      liveDir,
+      stagedDir: blockedStage,
+      oldDir: path.join(liveDir, 'nested-old'),
+      commitPath,
+      version: '3.0.0',
+      relaunchExe
+    }), 'move-failure.cmd');
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('new');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('2.2.0\r\n');
+    expect(fs.existsSync(path.join(blockedStage, 'BotBrowser Control.exe'))).toBe(true);
+
+    fs.renameSync(liveDir, oldDir);
+    const recoveredStage = path.join(root, 'recovered-stage');
+    fs.mkdirSync(recoveredStage);
+    fs.writeFileSync(path.join(recoveredStage, 'BotBrowser Control.exe'), 'recovered');
+    result = runScript(createWindowsSwapScript({ liveDir, stagedDir: recoveredStage, oldDir, commitPath, version: '4.0.0', relaunchExe }), 'orphan-recovery.cmd');
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(path.join(liveDir, 'BotBrowser Control.exe'), 'utf8')).toBe('recovered');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('4.0.0\r\n');
+    expect(fs.existsSync(oldDir)).toBe(false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
