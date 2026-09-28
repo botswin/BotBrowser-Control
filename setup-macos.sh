@@ -32,7 +32,9 @@ unzip -q "$TMP_DIR/control.zip" -d "$INSTALL_DIR"
 mv "$INSTALL_DIR/BotBrowser-Control-main" "$REPO_DIR"
 export PATH="$NODE_DIR/bin:$PATH" NPM_CONFIG_UPDATE_NOTIFIER=false
 cd "$REPO_DIR"
+echo "[4/6] Installing Node.js dependencies (this may take several minutes)..."
 npm ci
+echo "[5/6] Building BotBrowser Control (this may take several minutes)..."
 npm run build:mac -- --"$build_arch"
 app="$(find "$REPO_DIR/dist" -maxdepth 3 -type d -name '*.app' -print -quit)"
 [ -n "$app" ] || { echo 'macOS build produced no .app bundle' >&2; exit 1; }

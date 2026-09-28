@@ -4,7 +4,7 @@ Control and the BotBrowser Kernel are separate downloads.
 
 ## Current availability
 
-Tagged Control releases publish the application assets on [BotBrowser Control Releases](https://github.com/botswin/BotBrowser-Control/releases). Each release also includes `manifest.json`, the Windows installer contract: it lists only `win32` x64 and arm64 ZIP assets, their `v<version>` release URLs, and runner-computed SHA-256 values. Do not use the BotBrowser Kernel release page for Control installers.
+The supported installation path is local source bootstrap. The scripts download this public repository, install dependencies, build on the customer machine, and launch Control. A tagged prebuilt release is optional, not required. Do not use the BotBrowser Kernel release page as a Control installer source.
 
 The source bootstrap commands below download the current `main` source and build it locally. Re-running a command reinstalls current `main`; it is not an automatic update service.
 

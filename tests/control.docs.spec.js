@@ -27,7 +27,7 @@ test('INSTALL keeps Control assets separate from Kernel downloads', () => {
 
 test('public docs avoid unsupported release and update claims', () => {
   const text = docs.map(read).join('\n');
-  expect(text).toMatch(/tagged Control releases publish the application assets/i);
+  expect(text).toMatch(/source bootstrap|source installation/i);
   expect(text).toMatch(/reinstalls current `main`; it is not an automatic update service/i);
   expect(text).toContain('Windows x64 and arm64');
   expect(text).toContain('manifest.json');

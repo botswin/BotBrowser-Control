@@ -919,6 +919,9 @@ html, body {
 /* ── Form Elements ─────────────────────────────────────────────── */
 .form-section { margin-bottom: 28px; }
 
+.form-section { margin-bottom: 20px; }
+.form-section:last-child { margin-bottom: 0; }
+
 .form-section-title {
   font-size: 11px;
   font-weight: 700;
@@ -936,8 +939,10 @@ html, body {
 
 .form-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-.form-group  { display: flex; flex-direction: column; gap: 5px; }
+.form-group  { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .form-group.full { grid-column: 1 / -1; }
+.input-with-action { display: flex; flex-direction: column; gap: 8px; }
+.input-with-action .form-textarea { margin-bottom: 0; }
 
 .form-label {
   font-size: 11.5px;

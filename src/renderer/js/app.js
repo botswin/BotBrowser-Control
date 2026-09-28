@@ -1481,7 +1481,7 @@
             <input class="form-input" id="f-webrtcICE" placeholder="google" value="${esc(d.webrtcICE||'google')}">
           </div>
         </div>
-        <div class="form-group"><label class="form-label">Local DNS mode</label><select class="form-select" id="f-localDnsMode"><option value="default">Default</option><option value="local">Local</option><option value="custom">Custom</option></select></div><div class="form-group"><label class="form-label">Custom DNS servers</label><input class="form-input" id="f-localDnsServers" placeholder="1.1.1.1, 8.8.8.8" value="${esc(d.localDnsServers||'')}"></div>
+        <div class="form-grid"><div class="form-group"><label class="form-label">Local DNS mode</label><select class="form-select" id="f-localDnsMode"><option value="default">Default</option><option value="local">Local</option><option value="custom">Custom</option></select></div><div class="form-group"><label class="form-label">Custom DNS servers</label><input class="form-input" id="f-localDnsServers" placeholder="1.1.1.1, 8.8.8.8" value="${esc(d.localDnsServers||'')}"></div></div>
         ${renderToggle('f-portProtection', 'Port Protection', 'Protect local service ports.', d.portProtection===true, 'PRO')}
         ${renderToggle('f-networkInfoOverride', 'Network Info Override', 'Use profile navigator.connection values.', d.networkInfoOverride===true, null)}
         ${renderToggle('f-disableQuic', 'Disable QUIC', 'Use TCP proxy paths without HTTP/3.', d.disableQuic===true, null)}

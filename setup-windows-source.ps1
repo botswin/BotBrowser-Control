@@ -23,6 +23,7 @@ try {
   Move-Item (Join-Path $InstallDir 'BotBrowser-Control-main') $RepoDir
   $env:PATH = "$NodeDir;$env:PATH"
   $env:NPM_CONFIG_UPDATE_NOTIFIER = 'false'
+  Write-Host '[4/6] Installing Node.js dependencies (this may take several minutes)...'
   Push-Location $RepoDir
   & (Join-Path $NodeDir 'npm.cmd') ci
   & (Join-Path $NodeDir 'npm.cmd') run build:win:x64
@@ -35,6 +36,7 @@ try {
   $Shortcut.TargetPath = $Exe
   $Shortcut.WorkingDirectory = Split-Path $Exe
   $Shortcut.Save()
+  Write-Host '[6/6] Launching BotBrowser Control...'
   Start-Process $Exe
 } finally {
   if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue }
