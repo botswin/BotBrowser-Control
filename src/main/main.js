@@ -1695,7 +1695,9 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   if (!(profile.disableConsoleMessage === false || profile.disableConsoleMessage === 'false')) args.push('--bot-disable-console-message');
   args.push('--bot-always-active');
   if (profile.portProtection === true || profile.portProtection === 'true') args.push('--bot-port-protection');
-  if (profile.localDns === true || profile.localDns === 'true') args.push('--bot-local-dns');
+  if (profile.localDnsMode === 'local') args.push('--bot-local-dns=local');
+  else if (profile.localDnsMode === 'custom') { args.push('--bot-local-dns=custom'); if (profile.localDnsServers) args.push('--bot-local-dns-servers=' + profile.localDnsServers); }
+  else if (profile.localDns === true || profile.localDns === 'true') args.push('--bot-local-dns');
   if (profile.mobileForceTouch === true || profile.mobileForceTouch === 'true') args.push('--bot-mobile-force-touch');
   if (profile.enableVariationsInContext === true || profile.enableVariationsInContext === 'true') args.push('--bot-enable-variations-in-context');
   if (profile.networkInfoOverride === true || profile.networkInfoOverride === 'true') args.push('--bot-network-info-override');

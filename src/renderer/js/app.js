@@ -1323,7 +1323,7 @@
       webrtc: 'profile', webrtcICE: 'google', webgl: 'profile', webgpu: 'profile',
       fonts: 'profile', mediaDevices: 'profile', speechVoices: 'profile', mediaTypes: 'expand',
       alwaysActive: true, disableDebugger: true, disableConsoleMessage: true,
-      portProtection: false, localDns: false, injectRandomHistory: '',
+      portProtection: false, localDns: false, localDnsMode: 'default', localDnsServers: '', injectRandomHistory: '',
       mobileForceTouch: false, keyboard: 'profile',
       uaFullVersion: '', brandFullVersion: '', userAgent: '',
       platform: '', platformVersion: '', model: '', architecture: '', bitness: '', mobile: '',
@@ -1481,7 +1481,7 @@
             <input class="form-input" id="f-webrtcICE" placeholder="google" value="${esc(d.webrtcICE||'google')}">
           </div>
         </div>
-        ${renderToggle('f-localDns', 'Local DNS Solver', 'Prevents DNS leaks.', d.localDns===true, 'ENT Tier1')}
+        <div class="form-group"><label class="form-label">Local DNS mode</label><select class="form-select" id="f-localDnsMode"><option value="default">Default</option><option value="local">Local</option><option value="custom">Custom</option></select></div><div class="form-group"><label class="form-label">Custom DNS servers</label><input class="form-input" id="f-localDnsServers" placeholder="1.1.1.1, 8.8.8.8" value="${esc(d.localDnsServers||'')}"></div>
         ${renderToggle('f-portProtection', 'Port Protection', 'Protect local service ports.', d.portProtection===true, 'PRO')}
         ${renderToggle('f-networkInfoOverride', 'Network Info Override', 'Use profile navigator.connection values.', d.networkInfoOverride===true, null)}
         ${renderToggle('f-disableQuic', 'Disable QUIC', 'Use TCP proxy paths without HTTP/3.', d.disableQuic===true, null)}
@@ -1952,7 +1952,9 @@
       location: val('f-location') || 'auto',
       ipService: val('f-ipService'),
       webrtcICE: val('f-webrtcICE') || 'google',
-      localDns: chk('f-localDns'),
+      localDns: selVal('f-localDnsMode') !== 'default',
+      localDnsMode: selVal('f-localDnsMode'),
+      localDnsServers: val('f-localDnsServers'),
       portProtection: chk('f-portProtection'),
       networkInfoOverride: chk('f-networkInfoOverride'),
       customHeaders: readCustomHeaders(),
