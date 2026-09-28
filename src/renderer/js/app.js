@@ -345,6 +345,7 @@
       if (action === 'stage-control-update') { stageControlUpdate(); return; }
       if (action === 'apply-control-update') { applyControlUpdate(); return; }
       if (action === 'open-control-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases'); return; }
+      if (action === 'browse-profile-json') { browseFile(data.target, 'json'); return; }
       if (action === 'dismiss-update-banner') { document.getElementById('update-banner')?.remove(); return; }
       handleAction(action, data, e);
     });
@@ -1714,11 +1715,11 @@
         <div class="form-section-title">${I.cookie} Cookies & Bookmarks</div>
         <div class="form-group full">
           <label class="form-label">Cookies ${badge('PRO')}</label>
-          <textarea class="form-textarea" id="f-cookies" rows="4" placeholder='[{"url":"https://example.com","name":"session","value":"abc","domain":".example.com"}] or @/path/to/cookies.json'>${esc(d.cookies||'')}</textarea>
+          <textarea class="form-textarea" id="f-cookies" rows="4" placeholder='[{"url":"https://example.com","name":"session","value":"abc","domain":".example.com"}] or @/path/to/cookies.json'>${esc(d.cookies||'')}</textarea><button type="button" class="btn btn-secondary btn-sm" data-action="browse-profile-json" data-target="f-cookies">Choose local JSON</button>
         </div>
         <div class="form-group full">
           <label class="form-label">Bookmarks</label>
-          <textarea class="form-textarea" id="f-bookmarks" rows="3" placeholder='[{"title":"Example","type":"url","url":"https://example.com"}]'>${esc(d.bookmarks||'')}</textarea>
+          <textarea class="form-textarea" id="f-bookmarks" rows="3" placeholder='[{"title":"Example","type":"url","url":"https://example.com"}]'>${esc(d.bookmarks||'')}</textarea><button type="button" class="btn btn-secondary btn-sm" data-action="browse-profile-json" data-target="f-bookmarks">Choose local JSON</button>
         </div>
       </div>
       <div class="form-section">
@@ -2068,6 +2069,7 @@
   async function browseFile(targetId, filter) {
     const filters = filter === 'enc' ? [{ name: 'BotBrowser Profile', extensions: ['enc', 'json'] }]
       : filter === 'js' ? [{ name: 'JavaScript', extensions: ['js'] }]
+      : filter === 'json' ? [{ name: 'JSON', extensions: ['json'] }]
       : filter === 'jsonl' ? [{ name: 'JSONL', extensions: ['jsonl', 'json'] }]
       : [{ name: 'All Files', extensions: ['*'] }];
     const p = await window.api.dialog.openFile({ filters });
