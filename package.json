@@ -60,7 +60,7 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "src/assets/icon.png",
+      "icon": "src/assets/logo.svg",
       "target": [
         {
           "target": "dmg",
@@ -137,7 +137,7 @@
       "shortcutName": "BotBrowser Control"
     },
     "linux": {
-      "icon": "src/assets/icon.png",
+      "icon": "src/assets/logo.svg",
       "category": "Development",
       "target": [
         {
