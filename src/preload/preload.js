@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   proxies: {
     getAll: () => ipcRenderer.invoke('proxies:getAll'),
+    save: (proxy) => ipcRenderer.invoke('proxies:save', proxy),
+    export: (ids, destination) => ipcRenderer.invoke('proxies:export', ids, destination),
     delete: (id) => ipcRenderer.invoke('proxies:delete', id),
     bulkImport: (text) => ipcRenderer.invoke('proxies:bulkImport', text),
   },

@@ -1710,3 +1710,19 @@ body.light .update-banner { background: linear-gradient(90deg, rgba(41,128,185,0
 .pie-status.ok       { color: var(--success); background: var(--success-dim); border: 1px solid var(--success-b); }
 .pie-status.error    { color: var(--danger);  background: var(--danger-dim);  border: 1px solid var(--danger-b); }
 .pie-status.checking { color: var(--accent);  background: var(--accent-dim);  border: 1px solid var(--accent-border); }
+
+.proxy-manager-form { padding: 18px 24px; border-bottom: 1px solid var(--border); }
+.proxy-manager-form h2 { font-size: 15px; margin: 0 0 14px; }
+.proxy-manager-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 12px; }
+.proxy-manager-fields label { display: grid; gap: 5px; color: var(--text-2); font-size: 12px; min-width: 0; }
+.proxy-manager-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.proxy-manager-scroll { overflow-x: auto; }
+.proxy-manager-table { border-collapse: collapse; width: 100%; min-width: 690px; font-size: 13px; }
+.proxy-manager-table th, .proxy-manager-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.proxy-manager-table th { color: var(--text-3); font-size: 11px; font-weight: 600; }
+.proxy-manager-table th:first-child, .proxy-manager-table td:first-child { width: 36px; }
+.proxy-manager-table td:nth-child(4) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.proxy-row-actions { text-align: right !important; }
+.proxy-row-actions .btn { margin-left: 4px; }
+@media (max-width: 760px) { .proxy-manager-fields { grid-template-columns: repeat(2, minmax(130px, 1fr)); } }
+@media (max-width: 480px) { .proxy-manager-fields { grid-template-columns: minmax(0, 1fr); } }

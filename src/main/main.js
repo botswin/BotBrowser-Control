@@ -13,7 +13,7 @@ let Store;
 const { getProcessExitEvents } = require('./process-exit');
 const { saveCookiesViaCDP: saveCookieData } = require('./cookies');
 const { isNewerVersion } = require('./version');
-const { parseProxyText } = require('./proxy-parser');
+const { parseProxyLine, parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
@@ -288,6 +288,55 @@ ipcMain.handle('profiles:importCsv', (_, source) => {
   return { count: created.length, profiles: created, errors };
 });
 
+function proxyRecordUrl(proxy) {
+  const auth = proxy.username
+    ? `${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password || '')}@`
+    : '';
+  return `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+}
+
+function normalizeProxyRecord(input) {
+  if (!input || typeof input !== 'object') throw new Error('Invalid proxy');
+  const type = String(input.type || '').trim().toLowerCase();
+  const host = String(input.host || '').trim();
+  const port = Number(input.port);
+  const username = String(input.username || '');
+  const password = String(input.password || '');
+  if (password && !username) throw new Error('Proxy username is required with a password');
+  if (!['http', 'https', 'socks5', 'socks5h'].includes(type) ||
+      !host || !Number.isInteger(port) || port < 1 || port > 65535 ||
+      /[\s@/?#]/.test(host)) throw new Error('Invalid proxy address');
+  const parsed = parseProxyLine(proxyRecordUrl({ type, host, port, username, password }));
+  if (!parsed || parsed.host !== host || parsed.port !== port || parsed.type !== type) {
+    throw new Error('Invalid proxy address');
+  }
+  const name = String(input.name || '').trim() || `${host}:${port}`;
+  return { name, type, host, port, username, password };
+}
+
+ipcMain.handle('proxies:save', (_, input) => {
+  const record = normalizeProxyRecord(input);
+  const proxies = store.get('proxies', []);
+  const index = input.id ? proxies.findIndex(proxy => proxy.id === input.id) : -1;
+  if (input.id && index < 0) throw new Error('Proxy not found');
+  const saved = index < 0
+    ? { ...record, id: require('crypto').randomUUID(), createdAt: new Date().toISOString() }
+    : { ...proxies[index], ...record };
+  if (index < 0) proxies.push(saved);
+  else proxies[index] = saved;
+  store.set('proxies', proxies);
+  return saved;
+});
+
+ipcMain.handle('proxies:export', (_, ids, destination) => {
+  if (!destination || !path.isAbsolute(destination)) throw new Error('Invalid export path');
+  const proxies = store.get('proxies', []);
+  const selected = Array.isArray(ids) && ids.length
+    ? proxies.filter(proxy => ids.includes(proxy.id)) : proxies;
+  if (!selected.length) throw new Error('No proxies selected');
+  fs.writeFileSync(destination, selected.map(proxyRecordUrl).join('\n') + '\n', 'utf8');
+  return { count: selected.length, destination };
+});
 ipcMain.handle('proxies:getAll', () => store.get('proxies', []));
 ipcMain.handle('proxies:delete', (_, id) => {
   store.set('proxies', store.get('proxies', []).filter(proxy => proxy.id !== id));

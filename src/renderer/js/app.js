@@ -4,6 +4,11 @@
 (function () {
   // ─── State ────────────────────────────────────────────────────────────────────
   let profiles = [];
+  let proxies = [];
+  let proxyChecks = {};
+  let selectedProxyIds = new Set();
+  let proxyFormOpen = false;
+  let editingProxyId = null;
   let runningSessions = [];
   let currentView = 'profiles';
   let editingProfileId = null;
@@ -112,16 +117,95 @@
   async function init() {
     settings = await window.api.settings.get();
     await loadProfiles();
+    await loadProxies();
     await refreshRunningSessions();
     // Load cached kernel releases so Kernel Manager shows immediately on open
     await loadCachedKernelReleases();
-    render();
     bindNav();
     bindEvents();
+    render();
     // Check for updates in background after 2s
     setTimeout(checkForUpdates, 2000);
   }
 
+  function proxyRecordUrl(proxy) {
+    const auth = proxy.username
+      ? `${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password || '')}@` : '';
+    return `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+  }
+
+  async function loadProxies() {
+    proxies = await window.api.proxies.getAll();
+    const badge = el('badge-proxies');
+    if (badge) badge.textContent = proxies.length || '';
+  }
+
+  function renderProxies() {
+    const main = el('main-content');
+    if (!main) return;
+    const editing = proxies.find(proxy => proxy.id === editingProxyId) || {};
+    main.innerHTML = `
+      <div class="view-header">
+        <div class="view-header-left"><div class="view-title-icon">${I.network}</div><h1 class="view-title">Proxies</h1></div>
+        <div class="view-header-right">
+          <button class="btn btn-primary btn-sm" data-action="proxy-new">${I.plus} New</button>
+          <button class="btn btn-secondary btn-sm" data-action="import-proxies">Import</button>
+          <button class="btn btn-secondary btn-sm" data-action="proxy-export">${I.download} Export</button>
+          <button class="btn btn-secondary btn-sm" data-action="proxy-check-all">${I.refresh} Check</button>
+        </div>
+      </div>
+      ${proxyFormOpen ? `<form class="proxy-manager-form" id="proxy-manager-form">
+        <h2>${editingProxyId ? 'Edit proxy' : 'New proxy'}</h2>
+        <div class="proxy-manager-fields">
+          <label>Name<input class="form-input" id="pm-name" value="${esc(editing.name || '')}" placeholder="${esc(editing.host || 'Name')}"></label>
+          <label>Type<select class="form-input" id="pm-type">${['http', 'https', 'socks5', 'socks5h'].map(type => `<option value="${type}" ${editing.type === type ? 'selected' : ''}>${type.toUpperCase()}</option>`).join('')}</select></label>
+          <label>Host<input class="form-input" id="pm-host" value="${esc(editing.host || '')}" required></label>
+          <label>Port<input class="form-input" id="pm-port" type="number" min="1" max="65535" value="${esc(editing.port || '')}" required></label>
+          <label>Username<input class="form-input" id="pm-username" value="${esc(editing.username || '')}" autocomplete="off"></label>
+          <label>Password<input class="form-input" id="pm-password" type="password" value="${esc(editing.password || '')}" autocomplete="off"></label>
+        </div>
+        <div class="proxy-manager-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="proxy-cancel">Cancel</button><button type="submit" class="btn btn-primary btn-sm">Save proxy</button></div>
+      </form>` : ''}
+      <div class="proxy-manager-scroll"><table class="proxy-manager-table"><thead><tr>
+        <th><input type="checkbox" id="select-all-proxies" aria-label="Select all proxies" ${proxies.length && proxies.every(proxy => selectedProxyIds.has(proxy.id)) ? 'checked' : ''}></th>
+        <th>Name</th><th>Type</th><th>Address</th><th>Status</th><th>Actions</th>
+      </tr></thead><tbody>${proxies.map(proxy => {
+        const check = proxyChecks[proxy.id];
+        const status = check ? (check.status === 'checking' ? 'Checking...' : check.status === 'fail' ? 'Failed' : (check.query || 'OK')) : 'Not checked';
+        return `<tr><td><input type="checkbox" data-action="select-proxy" data-id="${esc(proxy.id)}" aria-label="Select ${esc(proxy.name)}" ${selectedProxyIds.has(proxy.id) ? 'checked' : ''}></td>
+          <td>${esc(proxy.name)}</td><td>${esc(proxy.type)}</td><td class="font-mono">${esc(proxy.host)}:${proxy.port}</td><td title="${esc(check?.error || '')}">${esc(status)}</td>
+          <td class="proxy-row-actions"><button class="btn btn-ghost btn-sm btn-icon" data-action="proxy-check" data-id="${esc(proxy.id)}" title="Check IP">${I.refresh}</button><button class="btn btn-ghost btn-sm btn-icon" data-action="proxy-edit" data-id="${esc(proxy.id)}" title="Edit">${I.edit}</button><button class="btn btn-danger btn-sm btn-icon" data-action="proxy-delete" data-id="${esc(proxy.id)}" title="Delete">${I.trash}</button></td></tr>`;
+      }).join('')}</tbody></table>${proxies.length ? '' : '<div class="empty-state"><h3>No proxies yet</h3></div>'}</div>`;
+    const form = el('proxy-manager-form');
+    if (form) form.addEventListener('submit', event => { event.preventDefault(); saveProxyFromManager(); });
+  }
+
+  async function saveProxyFromManager() {
+    const input = { id: editingProxyId, name: val('pm-name'), type: selVal('pm-type'), host: val('pm-host'), port: Number(val('pm-port')), username: val('pm-username'), password: val('pm-password') };
+    try { await window.api.proxies.save(input); await loadProxies(); proxyFormOpen = false; editingProxyId = null; renderProxies(); showToast('Proxy saved.', 'success'); }
+    catch (error) { showToast(error.message, 'error'); }
+  }
+  async function deleteProxyFromManager(id) {
+    if (!window.confirm('Delete this proxy?')) return;
+    await window.api.proxies.delete(id); selectedProxyIds.delete(id); delete proxyChecks[id]; await loadProxies(); renderProxies();
+  }
+  async function checkProxyFromManager(id) {
+    const proxy = proxies.find(item => item.id === id); if (!proxy) return;
+    proxyChecks[id] = { status: 'checking' }; renderProxies();
+    try { proxyChecks[id] = await window.api.proxy.checkIp(proxyRecordUrl(proxy)); }
+    catch (error) { proxyChecks[id] = { status: 'fail', error: error.message }; }
+    renderProxies();
+  }
+  async function checkProxiesFromManager() {
+    const targets = proxies.filter(proxy => !selectedProxyIds.size || selectedProxyIds.has(proxy.id));
+    await Promise.all(targets.map(proxy => checkProxyFromManager(proxy.id)));
+  }
+  async function exportProxyCollection() {
+    const destination = await window.api.dialog.saveFile({ defaultPath: 'proxies.txt', filters: [{ name: 'Text', extensions: ['txt'] }] });
+    if (!destination) return;
+    try { await window.api.proxies.export([...selectedProxyIds], destination); showToast('Proxies exported.', 'success'); }
+    catch (error) { showToast(error.message, 'error'); }
+  }
   async function loadProfiles() {
     profiles = await window.api.profiles.getAll();
   }
@@ -252,6 +336,19 @@
     });
 
     document.addEventListener('change', (e) => {
+      if (e.target.dataset.action === 'select-proxy') {
+        if (e.target.checked) selectedProxyIds.add(e.target.dataset.id);
+        else selectedProxyIds.delete(e.target.dataset.id);
+      }
+      if (e.target.id === 'select-all-proxies') {
+        selectedProxyIds = e.target.checked ? new Set(proxies.map(proxy => proxy.id)) : new Set();
+        renderProxies();
+      }
+      if (e.target.id === 'f-savedProxy' && e.target.value) {
+        const saved = proxies.find(proxy => proxy.id === e.target.value);
+        const input = el('f-proxyServer');
+        if (saved && input) input.value = proxyRecordUrl(saved);
+      }
       if (e.target.id === 's-executableMode') {
         const input = el('s-botBrowserPath');
         if (input) input.disabled = e.target.value !== 'custom';
@@ -347,6 +444,14 @@
       case 'delete-profile':        deleteProfile(data.id); break;
       case 'new-profile':           openProfileEditor(null); break;
       case 'import-proxies':        openProxyImport(); break;
+      case 'proxy-new':             proxyFormOpen = true; editingProxyId = null; renderProxies(); break;
+      case 'proxy-edit':            proxyFormOpen = true; editingProxyId = data.id; renderProxies(); break;
+      case 'proxy-cancel':          proxyFormOpen = false; editingProxyId = null; renderProxies(); break;
+      case 'proxy-save':            saveProxyFromManager(); break;
+      case 'proxy-delete':          deleteProxyFromManager(data.id); break;
+      case 'proxy-check':           checkProxyFromManager(data.id); break;
+      case 'proxy-check-all':       checkProxiesFromManager(); break;
+      case 'proxy-export':          exportProxyCollection(); break;
       case 'cancel-proxy-import':  el('proxy-import-modal')?.remove(); break;
       case 'submit-proxy-import':  submitProxyImport(); break;
       case 'export-profiles':      exportProfiles(); break;
@@ -394,6 +499,7 @@
     if (!main) return;
     if (currentView === 'profiles') renderProfiles();
     else if (currentView === 'sessions') renderSessions();
+    else if (currentView === 'proxies') renderProxies();
     else if (currentView === 'kernels') renderKernels();
     else if (currentView === 'settings') renderSettings();
   }
@@ -1078,6 +1184,8 @@
     const text = input?.value || '';
     if (!text.trim()) { results.textContent = 'Enter at least one proxy.'; return; }
     const result = await window.api.proxies.bulkImport(text);
+    await loadProxies();
+    if (currentView === 'proxies') renderProxies();
     const errors = result.results.filter(item => item.error);
     results.textContent = `Imported ${result.imported}; ${errors.length} rejected${errors.length ? ` (${errors.map(item => `line ${item.line}: ${item.error}`).join(', ')})` : ''}.`;
     if (!errors.length) setTimeout(() => el('proxy-import-modal')?.remove(), 500);
@@ -1289,6 +1397,7 @@
         <div class="form-grid">
           <div class="form-group full">
             <label class="form-label">Proxy Server</label>
+            <select class="form-input" id="f-savedProxy" aria-label="Use saved proxy"><option value="">Use saved proxy...</option>${proxies.map(proxy => `<option value="${esc(proxy.id)}">${esc(proxy.name)}</option>`).join('')}</select>
             <input class="form-input" id="f-proxyServer" placeholder="socks5://host:port or http://user:pass@host:port" value="${esc(d.proxyServer||'')}">
             <div class="form-hint">Default scheme: socks5://. Supports HTTP, HTTPS, SOCKS4, SOCKS5.</div>
           </div>
