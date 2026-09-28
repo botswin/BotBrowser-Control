@@ -67,7 +67,8 @@ const STORE_OPTIONS = {
     profiles: [],
     proxies: [],
     settings: {
-      botBrowserPath: DEFAULT_BOTBROWSER_PATH,
+      botBrowserPath: '',
+      executableMode: 'managed',
       defaultUserDataDir: getDefaultUserDataDir(),
       theme: 'dark',
       defaultProxy: '',
@@ -83,8 +84,10 @@ const STORE_OPTIONS = {
 // ─── Runtime state ────────────────────────────────────────────────────────────
 const runningInstances = new Map();
 const kernelDownloads = new Map();
+const managedKernelRequests = new Map();
 const tempFiles = new Map();
 let mainWindow = null;
+let managedKernelUpdateTimer = null;
 
 // ─── Window ───────────────────────────────────────────────────────────────────
 function createWindow() {
@@ -318,6 +321,7 @@ ipcMain.handle('profiles:create', (_, profileData) => {
   };
   profiles.push(newProfile);
   store.set('profiles', profiles);
+  queueManagedKernelForProfile(newProfile);
   return newProfile;
 });
 
@@ -327,6 +331,7 @@ ipcMain.handle('profiles:update', (_, { id, updates }) => {
   if (idx === -1) throw new Error('Profile not found');
   profiles[idx] = { ...profiles[idx], ...updates, updatedAt: new Date().toISOString() };
   store.set('profiles', profiles);
+  queueManagedKernelForProfile(profiles[idx]);
   return profiles[idx];
 });
 
@@ -438,11 +443,12 @@ ipcMain.handle('browser:launch', async (_, launchRequest) => {
   }
 
   const settings = store.get('settings');
-  const botBrowserPath = settings.botBrowserPath || DEFAULT_BOTBROWSER_PATH;
+  const kernelMajor = resolveKernel(profile);
+  const botBrowserPath = await resolveBrowserExecutable(profile, settings);
 
   if (!fs.existsSync(botBrowserPath)) {
     throw new Error(
-      `BotBrowser executable not found at:\n${botBrowserPath}\n\nPlease install BotBrowser or update the path in Settings.`
+      `BotBrowser executable not found at:\n${botBrowserPath}\n\nInstall the managed kernel for Chrome ${kernelMajor || 'the profile'} or choose a custom executable in Settings.`
     );
   }
 
@@ -488,6 +494,7 @@ ipcMain.handle('browser:launch', async (_, launchRequest) => {
 
   const instance = {
     process: proc,
+    executablePath: botBrowserPath,
     pid: proc.pid,
     profileId,
     profileName: profile.name,
@@ -593,7 +600,13 @@ ipcMain.handle('browser:warmup', async (_, { urls, profileId, continueOnError = 
 
 ipcMain.handle('settings:get', () => store.get('settings'));
 ipcMain.handle('settings:set', (_, newSettings) => {
-  store.set('settings', { ...store.get('settings'), ...newSettings });
+  const current = store.get('settings');
+  const next = { ...current, ...newSettings };
+  if (Object.prototype.hasOwnProperty.call(newSettings || {}, 'botBrowserPath') &&
+      !Object.prototype.hasOwnProperty.call(newSettings || {}, 'executableMode')) {
+    next.executableMode = newSettings.botBrowserPath ? 'custom' : 'managed';
+  }
+  store.set('settings', next);
   return true;
 });
 
@@ -857,11 +870,11 @@ function doHttpProxyIpCheck(proxy, targetHost, targetPath, targetPort) {
 
 // ─── IPC: Update Checker ──────────────────────────────────────────────────────
 
-function getReleaseApiUrl(repository, fallback) {
+function getReleaseApiUrl(repository, fallback, endpoint = 'releases/latest') {
   try {
     const fixtureBase = new URL(process.env.BOTBROWSER_TEST_RELEASES_API_BASE);
     if (fixtureBase.protocol === 'http:' && fixtureBase.hostname === '127.0.0.1') {
-      return new URL(`/repos/${repository}/releases/latest`, fixtureBase).toString();
+      return new URL(`/repos/${repository}/${endpoint}`, fixtureBase).toString();
     }
   } catch {}
   return fallback;
@@ -974,7 +987,7 @@ ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
 
 // ─── IPC: Kernel Manager ──────────────────────────────────────────────────────
 
-const KERNEL_GITHUB_API = 'https://api.github.com/repos/botswin/BotBrowser/releases';
+const KERNEL_GITHUB_API = getReleaseApiUrl('botswin/BotBrowser', 'https://api.github.com/repos/botswin/BotBrowser/releases', 'releases');
 
 function httpsGet(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
@@ -1034,6 +1047,151 @@ ipcMain.handle('kernel:getCachedReleases', () => {
 
 function getKernelsDir() {
   return path.join(app.getPath('userData'), 'kernels');
+}
+
+function parseKernelVersion(value) {
+  const match = String(value || '').replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)(?:_(\d{8}))?$/);
+  return match ? { version: match.slice(1, 5).join('.'), assetDate: match[5] || '', major: Number(match[1]), parts: match.slice(1, 5).map(Number) } : null;
+}
+
+function compareKernelVersions(left, right) {
+  return left.parts.reduce((result, part, index) => result || part - right.parts[index], 0);
+}
+
+function kernelAssetForRelease(release) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const platform = IS_WIN ? 'win' : IS_MAC ? 'mac' : 'linux';
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const candidates = assets.filter(asset => {
+    if (!asset || typeof asset.name !== 'string' || !asset.browser_download_url) return false;
+    const name = asset.name.toLowerCase();
+    if (platform === 'win') return name.endsWith(`_win_${arch}.7z`);
+    if (platform === 'mac') return name.endsWith(`_mac_${arch}.dmg`);
+    return name.endsWith(`_${arch}.deb`);
+  });
+  return candidates.sort((a, b) => kernelAssetDate(b).localeCompare(kernelAssetDate(a)))[0] || null;
+}
+
+function kernelAssetDate(asset) {
+  return asset?.name?.match(/^botbrowser_(\d{8})_/i)?.[1] || '';
+}
+
+function findInstalledManagedKernel(major) {
+  if (!Number.isInteger(major)) return null;
+  const dir = getKernelsDir();
+  if (!fs.existsSync(dir)) return null;
+  const matches = fs.readdirSync(dir, { withFileTypes: true }).map(entry => {
+    if (!entry.isDirectory()) return null;
+    const parsed = parseKernelVersion(entry.name);
+    if (!parsed || parsed.major !== major) return null;
+    const metaPath = path.join(dir, entry.name, '.meta.json');
+    let meta = {};
+    try { if (fs.existsSync(metaPath)) meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch {}
+    const execPath = meta.execPath && path.resolve(meta.execPath);
+    return execPath && fs.existsSync(execPath) ? { ...parsed, ...meta, execPath } : null;
+  }).filter(Boolean);
+  return matches.sort((a, b) => compareKernelVersions(b, a) || String(b.assetDate).localeCompare(String(a.assetDate)))[0] || null;
+}
+
+async function loadManagedKernel(major) {
+  const installed = findInstalledManagedKernel(major);
+  if (!Number.isInteger(major)) throw new Error('Unable to derive a BotBrowser kernel major from this profile user agent');
+  let response;
+  try {
+    response = await httpsGet(KERNEL_GITHUB_API);
+  } catch (error) {
+    if (installed) return installed.execPath;
+    throw error;
+  }
+  if (response.statusCode !== 200) {
+    if (installed) return installed.execPath;
+    throw new Error(`Kernel release lookup failed: HTTP ${response.statusCode}`);
+  }
+  let releases;
+  try { releases = JSON.parse(response.body); } catch (error) {
+    if (installed) return installed.execPath;
+    throw new Error(`Kernel release lookup returned invalid JSON: ${error.message}`);
+  }
+  const candidates = (Array.isArray(releases) ? releases : []).map(release => ({ release, parsed: parseKernelVersion(release.tag_name) }))
+    .filter(item => item.parsed && item.parsed.major === major && !item.release.prerelease && kernelAssetForRelease(item.release));
+  candidates.sort((a, b) => compareKernelVersions(b.parsed, a.parsed));
+  if (!candidates.length) {
+    if (installed) return installed.execPath;
+    throw new Error(`No public BotBrowser kernel release found for Chrome ${major}`);
+  }
+  const newest = candidates[0];
+  const sameVersion = candidates.filter(item => item.parsed.version === newest.parsed.version);
+  sameVersion.sort((a, b) => {
+    const left = kernelAssetForRelease(a.release);
+    const right = kernelAssetForRelease(b.release);
+    return kernelAssetDate(right).localeCompare(kernelAssetDate(left));
+  });
+  const release = sameVersion[0].release;
+  const asset = kernelAssetForRelease(release);
+  const assetDate = kernelAssetDate(asset);
+  if (installed) {
+    const remote = parseKernelVersion(newest.parsed.version);
+    const installedDate = installed.assetDate || '';
+    if (compareKernelVersions(installed, remote) >= 0 && String(installedDate) >= String(assetDate || '')) return installed.execPath;
+  }
+  const result = await downloadKernelAsset({
+    downloadUrl: asset.browser_download_url,
+    fileName: asset.name,
+    version: newest.parsed.version,
+    assetDate,
+  });
+  if (!result.execPath || !fs.existsSync(result.execPath)) throw new Error(`Kernel ${newest.parsed.version} was downloaded but no executable was found`);
+  return result.execPath;
+}
+
+function ensureManagedKernel(major) {
+  if (!Number.isInteger(major)) return Promise.reject(new Error('Unable to derive a BotBrowser kernel major from this profile user agent'));
+  const existing = managedKernelRequests.get(major);
+  if (existing) return existing;
+  const request = loadManagedKernel(major);
+  managedKernelRequests.set(major, request);
+  request.finally(() => managedKernelRequests.delete(major)).catch(() => {});
+  return request;
+}
+
+async function resolveBrowserExecutable(profile, settings) {
+  const mode = settings?.executableMode || (settings?.botBrowserPath ? 'custom' : 'managed');
+  if (mode === 'custom') {
+    const custom = String(settings?.botBrowserPath || '').trim();
+    if (!custom) throw new Error('Custom BotBrowser executable path is empty');
+    return custom;
+  }
+  // Profiles without a detectable Chrome major cannot select a managed kernel;
+  // return the legacy sentinel so the caller emits the normal executable error.
+  if (!resolveKernel(profile)) return DEFAULT_BOTBROWSER_PATH;
+  return ensureManagedKernel(resolveKernel(profile));
+}
+
+async function updateManagedKernelsForProfiles() {
+  const majors = new Set(store.get('profiles', []).map(resolveKernel).filter(Number.isInteger));
+  await Promise.all([...majors].map(major => ensureManagedKernel(major).catch(() => null)));
+}
+
+function queueManagedKernelForProfile(profile) {
+  const major = resolveKernel(profile || {});
+  if (!Number.isInteger(major)) return;
+  ensureManagedKernel(major).catch(error => console.warn(`Managed kernel ${major} preparation failed:`, error.message));
+}
+
+async function autoUpdateManagedKernels() {
+  const dir = getKernelsDir();
+  if (!fs.existsSync(dir)) return { checked: 0, updated: 0 };
+  const majors = new Set(fs.readdirSync(dir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => parseKernelVersion(entry.name)?.major)
+    .filter(Number.isInteger));
+  let updated = 0;
+  for (const major of majors) {
+    const previous = findInstalledManagedKernel(major)?.execPath;
+    await ensureManagedKernel(major);
+    if (findInstalledManagedKernel(major)?.execPath !== previous) updated += 1;
+  }
+  return { checked: majors.size, updated };
 }
 
 ipcMain.handle('kernel:getDir', () => getKernelsDir());
@@ -1100,14 +1258,16 @@ ipcMain.handle('kernel:cancelDownload', async (_, version) => {
 
 /**
  * Download a kernel asset, then auto-install it.
- * - macOS .dmg: mount with hdiutil, copy .app to /Applications (xattr -rd + codesign -f)
- * - Linux .deb: install with dpkg -i (requires sudo) or just mark as ready
+ * - macOS .dmg: mount with hdiutil and copy .app into the managed kernel directory
+ * - Linux .deb: extract into the managed kernel directory without requiring sudo
  * - Linux .AppImage: chmod +x
  * - Windows .7z/.zip: extract with built-in tools
  */
-ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) => {
+async function downloadKernelAsset({ downloadUrl, fileName, version, assetDate = null }) {
   const kernelsDir = getKernelsDir();
-  const versionDir = path.join(kernelsDir, version);
+  const installKey = assetDate ? `${version}_${assetDate}` : version;
+  const versionDir = getKernelVersionDir(installKey);
+  if (!versionDir || (assetDate && !parseKernelVersion(installKey))) throw new Error('Invalid kernel version or asset date');
   fs.mkdirSync(versionDir, { recursive: true });
 
   const destPath = path.join(versionDir, fileName);
@@ -1173,7 +1333,7 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
 
   try {
     if (IS_MAC && fileName.endsWith('.dmg')) {
-      // Mount DMG, copy .app to /Applications, unmount
+      // Keep managed installs private to Control so user-installed apps remain untouched.
       const mountResult = await runCmd('hdiutil', ['attach', '-nobrowse', '-noverify', '-noautoopen', destPath]);
       // Find mount point from output (last line with /Volumes/)
       const mountPoint = (mountResult.stdout || '').split('\n')
@@ -1187,15 +1347,8 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
         if (apps.length > 0) {
           const appName = apps[0];
           const srcApp = path.join(mountPoint, appName);
-          const dstApp = path.join('/Applications', appName);
-
-          // Remove old if exists
-          if (fs.existsSync(dstApp)) {
-            await runCmd('rm', ['-rf', dstApp]);
-          }
-
-          // Copy .app to /Applications
-          await runCmd('cp', ['-R', srcApp, '/Applications/']);
+          const dstApp = path.join(versionDir, appName);
+          await runCmd('cp', ['-R', srcApp, dstApp]);
 
           // Remove quarantine flag (xattr) so unsigned app can open
           try { await runCmd('xattr', ['-rd', 'com.apple.quarantine', dstApp]); } catch {}
@@ -1212,7 +1365,7 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
           }
           execPath = path.join(dstApp, 'Contents', 'MacOS', execName);
           installStatus = 'installed';
-          installNote = `Installed to /Applications/${appName}`;
+          installNote = 'Installed in managed kernels';
         }
         // Unmount
         try { await runCmd('hdiutil', ['detach', mountPoint, '-quiet']); } catch {}
@@ -1223,21 +1376,24 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
       installStatus = 'ready';
       installNote = 'AppImage is ready to use';
     } else if (IS_LINUX && fileName.endsWith('.deb')) {
-      // Try to install with pkexec/sudo dpkg
-      try {
-        await runCmd('pkexec', ['dpkg', '-i', destPath]);
-        installStatus = 'installed';
-        installNote = 'Installed via dpkg';
-        execPath = '/usr/bin/botbrowser';
-      } catch {
-        installStatus = 'downloaded';
-        installNote = `Run: sudo dpkg -i ${destPath}`;
-        execPath = null;
-      }
+      await runCmd('dpkg-deb', ['-x', destPath, versionDir]);
+      execPath = findFilesRecursive(versionDir, '').find(file =>
+        /^(?:chrome|chromium|botbrowser)$/i.test(path.basename(file)) && fs.statSync(file).isFile()) || null;
+      installStatus = execPath ? 'extracted' : 'downloaded';
+      installNote = execPath ? 'Extracted in managed kernels' : 'Browser executable not found in package';
+    } else if (IS_LINUX && fileName.toLowerCase().endsWith('.tar.gz')) {
+      await runCmd('tar', ['-xzf', destPath, '-C', versionDir]);
+      const files = findFilesRecursive(versionDir, '');
+      execPath = files.find(file => {
+        try { return fs.statSync(file).isFile() && (fs.statSync(file).mode & 0o111) && /(?:botbrowser|chrom(?:e|ium))/i.test(path.basename(file)); } catch { return false; }
+      }) || null;
+      installStatus = execPath ? 'extracted' : 'downloaded';
+      installNote = execPath ? 'Extracted successfully' : 'Archive extracted; executable not found';
     } else if (IS_WIN && fileName.endsWith('.7z')) {
       await runCmd('7z', ['x', '-y', `-o${versionDir}`, destPath]);
-      const exes = findFilesRecursive(versionDir, '.exe').filter(f => !f.includes('Uninstall'));
-      execPath = exes[0] || null;
+      const exes = findFilesRecursive(versionDir, '.exe');
+      execPath = exes.find(file => /(?:^|[\\/])(?:chrome|chromium|botbrowser)\.exe$/i.test(file)) ||
+        exes.find(file => !/uninstall/i.test(path.basename(file))) || null;
       installStatus = 'extracted';
       installNote = 'Extracted successfully';
     } else if (IS_WIN && fileName.endsWith('.zip')) {
@@ -1246,8 +1402,9 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
         await runCmd('powershell', ['-Command', `Expand-Archive -Force -Path "${destPath}" -DestinationPath "${versionDir}"`]);
       }
       // Find .exe
-      const exes = findFilesRecursive(versionDir, '.exe').filter(f => !f.includes('Uninstall'));
-      execPath = exes[0] || null;
+      const exes = findFilesRecursive(versionDir, '.exe');
+      execPath = exes.find(file => /(?:^|[\\/])(?:chrome|chromium|botbrowser)\.exe$/i.test(file)) ||
+        exes.find(file => !/uninstall/i.test(path.basename(file))) || null;
       installStatus = 'extracted';
       installNote = 'Extracted successfully';
     } else if (IS_WIN && fileName.endsWith('.exe')) {
@@ -1261,19 +1418,29 @@ ipcMain.handle('kernel:download', async (_, { downloadUrl, fileName, version }) 
 
   const meta = {
     version, installedAt: new Date().toISOString(),
+    assetDate,
     platform: process.platform, fileName, execPath, downloadUrl,
     installStatus, installNote,
   };
   fs.writeFileSync(path.join(versionDir, '.meta.json'), JSON.stringify(meta, null, 2), 'utf8');
 
-  if ((installStatus === 'installed' || installStatus === 'extracted') && /\.(?:dmg|deb|7z|zip)$/i.test(fileName)) {
+  if ((installStatus === 'installed' || installStatus === 'extracted') && /\.(?:dmg|deb|7z|zip|tar\.gz)$/i.test(fileName)) {
     try { fs.rmSync(destPath, { force: true }); } catch {}
   }
-  cleanupOldKernelVersions(kernelsDir, new Set([version, ...kernelDownloads.keys()]));
+  const protectedKernels = new Set([installKey, ...kernelDownloads.keys()]);
+  for (const instance of runningInstances.values()) {
+    const relative = path.relative(kernelsDir, instance.executablePath || '');
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+      protectedKernels.add(relative.split(path.sep)[0]);
+    }
+  }
+  cleanupOldKernelVersions(kernelsDir, protectedKernels);
 
   mainWindow?.webContents.send('kernel:downloadComplete', { version, execPath, destPath, installStatus, installNote });
   return { version, execPath, destPath, installStatus, installNote };
-});
+}
+
+ipcMain.handle('kernel:download', (_, options) => downloadKernelAsset(options));
 
 function runCmd(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -1610,6 +1777,15 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+  // Refresh managed kernels for profiles already configured, then re-check periodically.
+  setTimeout(() => updateManagedKernelsForProfiles().catch(error => console.warn('Managed kernel preparation failed:', error.message)), 1000);
+  // Keep managed kernels current without blocking app startup or requiring a token.
+  autoUpdateManagedKernels().catch(error => console.warn('Managed kernel update check failed:', error.message));
+  managedKernelUpdateTimer = setInterval(() => {
+    if (kernelDownloads.size !== 0) return;
+    updateManagedKernelsForProfiles().catch(error => console.warn('Managed kernel preparation failed:', error.message));
+    autoUpdateManagedKernels().catch(error => console.warn('Managed kernel update check failed:', error.message));
+  }, 6 * 60 * 60 * 1000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -1622,6 +1798,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (managedKernelUpdateTimer) clearInterval(managedKernelUpdateTimer);
   for (const [, inst] of runningInstances) { try { inst.process.kill(); } catch {} }
   for (const [profileId] of tempFiles) { cleanupTempFile(profileId); }
 });

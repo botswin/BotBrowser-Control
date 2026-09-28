@@ -3,12 +3,13 @@ const path = require('node:path');
 
 function parseFullVersion(version) {
   if (typeof version !== 'string') return null;
-  const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)(?:_(\d{8}))?$/.exec(version);
   if (!match) return null;
   return {
     version,
     major: Number(match[1]),
-    parts: match.slice(1).map(Number),
+    parts: match.slice(1, 5).map(Number),
+    assetDate: match[5] || '',
   };
 }
 
@@ -33,7 +34,8 @@ function cleanupOldKernelVersions(kernelsDir, protectedVersions = new Set()) {
 
   for (const version of versions) {
     const latest = latestByMajor.get(version.major);
-    if (!latest || compareFullVersions(version, latest) > 0) {
+    if (!latest || compareFullVersions(version, latest) > 0 ||
+        (compareFullVersions(version, latest) === 0 && version.assetDate > latest.assetDate)) {
       latestByMajor.set(version.major, version);
     }
   }

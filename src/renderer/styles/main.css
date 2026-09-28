@@ -1115,6 +1115,9 @@ html, body {
 .settings-card-body {
   padding: 18px 20px;
 }
+.advanced-settings { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.advanced-settings summary { color: var(--text-3); font-size: 12px; cursor: pointer; user-select: none; }
+.advanced-settings[open] summary { color: var(--text-2); margin-bottom: 10px; }
 
 /* About grid */
 .about-grid {
@@ -1620,6 +1623,18 @@ html, body {
   color: var(--text-1);
   flex-shrink: 0;
   animation: slideDown 0.2s ease;
+}
+.update-banner.compact-update-notice {
+  position: fixed;
+  z-index: 20;
+  bottom: 16px;
+  right: 16px;
+  width: min(520px, calc(100vw - 32px));
+  min-height: 34px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
 }
 
 .update-banner-icon {

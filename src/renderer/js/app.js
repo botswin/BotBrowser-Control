@@ -204,10 +204,8 @@
       ${showControl ? controlAction : '<button class="btn btn-primary btn-sm" data-action="open-control-releases">Release page</button>'}
       <button class="btn btn-ghost btn-sm" data-action="dismiss-update-banner" title="Dismiss">${I.close}</button>
     `;
-    const layout = document.querySelector('.app-layout') || document.body;
-    const main = document.getElementById('main-content');
-    if (main && main.parentNode) main.parentNode.insertBefore(banner, main);
-    else layout.prepend(banner);
+    banner.classList.add('compact-update-notice');
+    document.body.appendChild(banner);
   }
 
   // ─── Navigation ───────────────────────────────────────────────────────────────
@@ -245,6 +243,10 @@
     });
 
     document.addEventListener('change', (e) => {
+      if (e.target.id === 's-executableMode') {
+        const input = el('s-botBrowserPath');
+        if (input) input.disabled = e.target.value !== 'custom';
+      }
       if (e.target.id === 'search-input') {
         searchQuery = e.target.value.toLowerCase();
         renderProfiles();
@@ -903,13 +905,24 @@
             </div>
             <div class="settings-card-body">
               <div class="form-group full">
-                <label class="form-label">Executable Path</label>
-                <div class="input-with-btn">
-                  <input class="form-input font-mono" id="s-botBrowserPath" value="${esc(s.botBrowserPath || defaultPath)}" placeholder="${esc(defaultPath)}">
-                  <button class="btn btn-secondary btn-sm" data-action="browse-exe">${I.folder} Browse</button>
-                </div>
-                <div class="form-hint">${IS_WIN ? 'e.g. C:\\Program Files\\BotBrowser\\chrome.exe' : IS_MAC ? '/Applications/Chromium.app/Contents/MacOS/Chromium' : '/usr/bin/botbrowser'}</div>
+                <label class="form-label">Executable Mode</label>
+                <select class="form-input" id="s-executableMode">
+                  <option value="managed" ${s.executableMode !== 'custom' ? 'selected' : ''}>Auto (managed kernel)</option>
+                  <option value="custom" ${s.executableMode === 'custom' ? 'selected' : ''}>Custom path (advanced)</option>
+                </select>
+                <div class="form-hint">Auto selects and installs the BotBrowser kernel matching each profile's Chrome user agent.</div>
               </div>
+              <details class="advanced-settings" ${s.executableMode === 'custom' ? 'open' : ''}>
+                <summary>Advanced executable override</summary>
+                <div class="form-group full">
+                  <label class="form-label">Executable Path</label>
+                  <div class="input-with-btn">
+                    <input class="form-input font-mono" id="s-botBrowserPath" value="${esc(s.botBrowserPath || '')}" placeholder="${esc(defaultPath)}" ${s.executableMode === 'custom' ? '' : 'disabled'}>
+                    <button class="btn btn-secondary btn-sm" data-action="browse-exe">${I.folder} Browse</button>
+                  </div>
+                  <div class="form-hint">Used only in Custom path mode. Managed kernels are stored in the app data directory.</div>
+                </div>
+              </details>
               <div class="form-group full" style="margin-top:14px">
                 <label class="form-label">Default User Data Directory</label>
                 <div class="input-with-btn">
@@ -1935,6 +1948,7 @@
   async function saveSettings() {
     const proxyRaw = val('s-defaultProxy');
     const newSettings = {
+      executableMode: selVal('s-executableMode') === 'custom' ? 'custom' : 'managed',
       botBrowserPath: val('s-botBrowserPath'),
       defaultUserDataDir: val('s-defaultUserDataDir'),
       defaultProxy: normalizeProxy(proxyRaw),

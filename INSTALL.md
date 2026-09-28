@@ -51,7 +51,9 @@ Names follow the `electron-builder` product name, such as `BotBrowser Control Se
 
 ## Configure the Kernel
 
-After Control starts, open Settings and choose the BotBrowser executable installed on your system. Kernel binaries are published separately at [botswin/BotBrowser](https://github.com/botswin/BotBrowser/releases). These are Kernel downloads, not Control application installers.
+Managed Kernel mode is enabled by default. Control checks the public [botswin/BotBrowser releases](https://github.com/botswin/BotBrowser/releases), downloads the profile's required major when missing, and automatically selects the installed executable. It also checks for newer full versions and newer asset dates periodically. Kernel downloads, not Control application installers, come from this separate release page.
+
+Use Settings > Executable Mode > Custom path only when you intentionally want to override managed Kernel selection.
 
 ## Support
 

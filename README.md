@@ -6,7 +6,7 @@ Desktop profile manager for [BotBrowser Kernel](https://github.com/botswin/BotBr
 
 ## What it does
 
-Create and manage local browser profiles, configure launch settings, and start or stop BotBrowser from one desktop application. Set the BotBrowser executable path in Settings before launching a profile.
+Create and manage local browser profiles, configure launch settings, and start or stop BotBrowser from one desktop application. By default Control manages the matching BotBrowser Kernel for each profile, downloads a missing Kernel, and selects its executable automatically.
 
 ## Install
 
@@ -49,6 +49,8 @@ The release workflow explicitly builds macOS x64 and arm64, Windows x64 and arm6
 ## Kernel downloads
 
 Control is separate from the BotBrowser Kernel. Obtain Kernel binaries and Kernel release information only from [botswin/BotBrowser](https://github.com/botswin/BotBrowser). Control release assets, issues, and homepage use [botswin/BotBrowser-Control](https://github.com/botswin/BotBrowser-Control).
+
+Managed Kernel mode is the default. Control checks public BotBrowser releases at startup and periodically, keeps the newest full version and asset date for installed majors, and downloads a profile's required major when it is missing. A custom executable path remains available as an advanced override in Settings.
 
 ## Support
 
