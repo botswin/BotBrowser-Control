@@ -1102,6 +1102,33 @@ test('Linux tar.gz update extraction rejects unsafe entries and finds the execut
   }
 });
 
+test('macOS ZIP update extraction preserves the app bundle install unit', async () => {
+  const { extractUpdatePackage, getPosixInstallUnit, applyDirectorySwap } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-mac-'));
+  const packagePath = path.join(root, 'update.zip');
+  const zip = new JSZip();
+  zip.file('BotBrowser Control.app/Contents/MacOS/BotBrowser Control', 'mac-new');
+  fs.writeFileSync(packagePath, await zip.generateAsync({ type: 'nodebuffer' }));
+  const liveDir = path.join(root, 'BotBrowser Control.app');
+  const liveExec = path.join(liveDir, 'Contents', 'MacOS', 'BotBrowser Control');
+  try {
+    fs.mkdirSync(path.dirname(liveExec), { recursive: true });
+    fs.writeFileSync(liveExec, 'mac-old');
+    const extracted = await extractUpdatePackage(packagePath, path.join(root, 'stage'), '5.0.2', 'BotBrowser Control');
+    const staged = getPosixInstallUnit({ platform: 'darwin', executablePath: extracted.executablePath });
+    expect(staged.kind).toBe('directory');
+    expect(applyDirectorySwap({
+      liveDir,
+      stagedDir: staged.livePath,
+      executableRelative: staged.executableRelative,
+      version: '5.0.2',
+    })).toMatchObject({ status: 'applied' });
+    expect(fs.readFileSync(liveExec, 'utf8')).toBe('mac-new');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows swap script executes an atomic temp-directory transaction', () => {
   test.skip(process.platform !== 'win32', 'Windows-only owner test');
   const { createWindowsSwapScript } = require('../src/main/update-apply');
