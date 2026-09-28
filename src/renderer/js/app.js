@@ -188,7 +188,7 @@
     }
     if (!parts.length) return;
     const canInstall = showControl && controlUpdateCanInstall(control);
-    const canApply = IS_WIN && showControl && Boolean(stagedControlUpdate);
+    const canApply = showControl && Boolean(stagedControlUpdate);
     const controlAction = canApply
       ? '<button class="btn btn-primary btn-sm" data-action="apply-control-update">Restart to install</button>'
       : canInstall

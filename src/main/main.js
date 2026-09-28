@@ -18,7 +18,7 @@ const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
-const { extractUpdatePackage, applyDirectorySwap, createWindowsSwapScript } = require('./update-apply');
+const { extractUpdatePackage, applyDirectorySwap, applyFileSwap, getPosixInstallUnit, createWindowsSwapScript } = require('./update-apply');
 const { cleanupOldKernelVersions } = require('./kernel-retention');
 
 // ─── Fix app name BEFORE anything else ───
@@ -927,19 +927,32 @@ ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stag
 ipcMain.handle('app:getStagedUpdate', (_, version) => getStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:cancelStagedUpdate', (_, version) => cancelStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
-  if (!IS_WIN) throw new Error('Staged updates can only be applied on Windows');
   const stagingRoot = path.join(app.getPath('userData'), 'updates');
   const pending = getStagedUpdate({ stagingDir: stagingRoot, version });
   if (!pending) throw new Error('No staged update found');
   const liveDir = path.dirname(process.execPath);
   if (!IS_WIN) {
+    const liveUnit = getPosixInstallUnit({ platform: process.platform, executablePath: process.execPath });
+    if (liveUnit.kind === 'file') {
+      const result = applyFileSwap({
+        livePath: liveUnit.livePath,
+        stagedPath: pending.path,
+        version: pending.version,
+        commitPath: path.join(stagingRoot, 'current.version'),
+        markerPath: path.join(stagingRoot, `.${pending.version}.apply.json`),
+      });
+      app.relaunch();
+      setTimeout(() => app.exit(0), 150);
+      return { ...result, status: 'scheduled' };
+    }
     const executableName = path.basename(process.execPath);
     const extracted = await extractUpdatePackage(pending.path, stagingRoot, pending.version, executableName);
-    const executableRelative = path.relative(extracted.stagedDir, extracted.executablePath);
+    const stagedUnit = getPosixInstallUnit({ platform: process.platform, executablePath: extracted.executablePath });
+    if (stagedUnit.kind !== 'directory') throw new Error('Staged update has an incompatible installation unit');
     const result = applyDirectorySwap({
-      liveDir,
-      stagedDir: extracted.stagedDir,
-      executableRelative,
+      liveDir: liveUnit.livePath,
+      stagedDir: stagedUnit.livePath,
+      executableRelative: stagedUnit.executableRelative,
       version: pending.version,
       commitPath: path.join(stagingRoot, 'current.version'),
       markerPath: path.join(stagingRoot, `.${pending.version}.apply.json`),

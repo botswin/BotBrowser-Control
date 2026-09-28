@@ -120,12 +120,12 @@ test('Control release manifest recognizes exact macOS and Linux workflow assets'
   }
 });
 
-test('non-Windows staged update is rejected and renderer offers only the release handoff', () => {
+test('staged update apply is available for supported POSIX install units', () => {
   const applyHandler = mainSource.match(/ipcMain\.handle\('app:applyStagedUpdate',[\s\S]*?\n\}\);/);
   expect(applyHandler).not.toBeNull();
-  expect(applyHandler[0]).toMatch(/if \(!IS_WIN\) throw new Error\('Staged updates can only be applied on Windows'\);/);
-  expect(applyHandler[0].indexOf('if (!IS_WIN)')).toBeLessThan(applyHandler[0].indexOf('getStagedUpdate'));
-  expect(rendererSource).toContain('const canApply = IS_WIN && showControl && Boolean(stagedControlUpdate);');
+  expect(applyHandler[0]).toContain('getPosixInstallUnit');
+  expect(applyHandler[0]).toContain('applyFileSwap');
+  expect(rendererSource).toContain('const canApply = showControl && Boolean(stagedControlUpdate);');
   expect(rendererSource).toContain('const controlAction = canApply');
 });
 
@@ -1052,6 +1052,32 @@ test('POSIX staged swap owns its marker and restores the live fixture on failure
     recoverDirectorySwap({ liveDir, oldDir, markerPath });
     expect(fs.readFileSync(path.join(liveDir, executableRelative), 'utf8')).toBe('new');
     expect(fs.existsSync(markerPath)).toBe(false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX update helpers identify app bundles and atomically replace AppImage files', () => {
+  const { getMacAppBundlePath, getPosixInstallUnit, applyFileSwap } = require('../src/main/update-apply');
+  expect(getMacAppBundlePath('/Applications/BotBrowser Control.app/Contents/MacOS/BotBrowser Control'))
+    .toBe('/Applications/BotBrowser Control.app');
+  expect(getPosixInstallUnit({ platform: 'darwin', executablePath: '/Applications/BotBrowser Control.app/Contents/MacOS/BotBrowser Control' }))
+    .toMatchObject({ kind: 'directory', livePath: '/Applications/BotBrowser Control.app' });
+  expect(getPosixInstallUnit({ platform: 'linux', executablePath: '/opt/botbrowser/BotBrowser Control.AppImage' }))
+    .toMatchObject({ kind: 'file', livePath: '/opt/botbrowser/BotBrowser Control.AppImage' });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-file-'));
+  const livePath = path.join(root, 'BotBrowser Control.AppImage');
+  const stagedPath = path.join(root, 'staged.AppImage');
+  const commitPath = path.join(root, 'current.version');
+  try {
+    fs.writeFileSync(livePath, 'old');
+    fs.writeFileSync(stagedPath, 'new');
+    expect(applyFileSwap({ livePath, stagedPath, commitPath, version: '4.0.0' }))
+      .toMatchObject({ status: 'applied', version: '4.0.0' });
+    expect(fs.readFileSync(livePath, 'utf8')).toBe('new');
+    expect(fs.readFileSync(commitPath, 'utf8')).toBe('4.0.0');
+    expect(fs.existsSync(`${livePath}.old`)).toBe(false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
