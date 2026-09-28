@@ -1083,6 +1083,25 @@ test('POSIX update helpers identify app bundles and atomically replace AppImage 
   }
 });
 
+test('Linux tar.gz update extraction rejects unsafe entries and finds the executable', async () => {
+  try { childProcess.execFileSync('tar', ['--version'], { stdio: 'ignore' }); }
+  catch { test.skip(true, 'tar is unavailable'); return; }
+  const { extractUpdatePackage } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-tar-'));
+  const payload = path.join(root, 'payload');
+  const executable = path.join(payload, 'BotBrowser Control');
+  const packagePath = path.join(root, 'update.tar.gz');
+  try {
+    fs.mkdirSync(payload, { recursive: true });
+    fs.writeFileSync(executable, 'linux-new');
+    childProcess.execFileSync('tar', ['-czf', packagePath, '-C', payload, '.']);
+    const extracted = await extractUpdatePackage(packagePath, path.join(root, 'stage'), '5.0.1', 'BotBrowser Control');
+    expect(fs.readFileSync(extracted.executablePath, 'utf8')).toBe('linux-new');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows swap script executes an atomic temp-directory transaction', () => {
   test.skip(process.platform !== 'win32', 'Windows-only owner test');
   const { createWindowsSwapScript } = require('../src/main/update-apply');
