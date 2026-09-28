@@ -528,6 +528,8 @@
     if (!searchQuery) return profiles;
     return profiles.filter(p =>
       (p.name||'').toLowerCase().includes(searchQuery) ||
+      (p.group||'').toLowerCase().includes(searchQuery) ||
+      (p.description||'').toLowerCase().includes(searchQuery) ||
       (p.proxyServer||'').toLowerCase().includes(searchQuery) ||
       (p.browserBrand||'').toLowerCase().includes(searchQuery) ||
       (p.startUrl||'').toLowerCase().includes(searchQuery)
@@ -647,6 +649,8 @@
               <div class="profile-identity">
                 <div class="profile-name-wrap">
                   <div class="profile-name">${esc(profile.name || 'Unnamed')}</div>
+                  ${profile.group ? `<span class="profile-tag" title="Group">${esc(profile.group)}</span>` : ''}
+                  ${profile.description ? `<span class="profile-description" title="${esc(profile.description)}">${esc(profile.description)}</span>` : ''}
                   <div class="profile-sub">
                     ${profile.startUrl
                       ? `${I.globe}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${esc(profile.startUrl)}</span>`
@@ -1306,7 +1310,7 @@
 
   function getDefaultProfile() {
     return {
-      name: '', browserBrand: '', colorScheme: 'light',
+      name: '', group: '', description: '', browserBrand: '', colorScheme: 'light',
       kernel: '',
       locale: 'auto', timezone: 'auto', languages: 'auto', location: 'auto',
       startUrl: '', proxyServer: '', proxyIp: '', proxyBypassRgx: '', proxyPacUrl: '', disableQuic: false,
@@ -1358,6 +1362,14 @@
           <div class="form-group full">
             <label class="form-label">Profile Name *</label>
             <input class="form-input" id="f-name" type="text" placeholder="e.g. Work Account 1" value="${esc(d.name||'')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Group</label>
+            <input class="form-input" id="f-group" type="text" value="${esc(d.group||'')}">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Description</label>
+            <textarea class="form-input" id="f-description" rows="2">${esc(d.description||'')}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Browser Brand ${badge('ENT Tier2')}</label>
@@ -1919,6 +1931,8 @@
     const proxyRaw = val('f-proxyServer');
     const profileData = {
       name,
+      group: val('f-group'),
+      description: val('f-description'),
       browserBrand: val('f-browserBrand') || '',
       kernel: val('f-kernel'),
       colorScheme: selVal('f-colorScheme'),

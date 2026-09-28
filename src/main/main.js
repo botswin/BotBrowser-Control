@@ -254,7 +254,7 @@ ipcMain.handle('profiles:importZip', async (_, source) => {
   return { count: created.length, profiles: created };
 });
 
-const CSV_FIELDS = ['name', 'startUrl', 'proxyServer', 'proxyIp', 'proxyBypassRgx', 'userAgent', 'locale', 'timezone', 'platform', 'platformVersion', 'notes'];
+const CSV_FIELDS = ['name', 'group', 'description', 'startUrl', 'proxyServer', 'proxyIp', 'proxyBypassRgx', 'userAgent', 'locale', 'timezone', 'platform', 'platformVersion', 'notes'];
 ipcMain.handle('profiles:exportCsv', (_, { ids, destination }) => {
   if (!destination || !path.isAbsolute(destination)) throw new Error('Invalid export path');
   const selected = store.get('profiles', []).filter(profile => !ids?.length || ids.includes(profile.id));

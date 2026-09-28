@@ -656,6 +656,7 @@ html, body {
 }
 
 .profile-name-wrap { overflow: hidden; }
+.profile-description { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11px; }
 
 .profile-name {
   font-size: 13px;
