@@ -11,6 +11,12 @@ function assertAbsolute(name, value) {
   if (!value || !path.isAbsolute(value)) throw new Error(`Invalid ${name}`);
 }
 
+function ensureExecutable(filePath) {
+  try { fs.chmodSync(filePath, 0o755); } catch (error) {
+    throw new Error(`Unable to mark the updated executable: ${error.message}`);
+  }
+}
+
 function getMacAppBundlePath(executablePath) {
   assertAbsolute('application executable', executablePath);
   const markerMatch = executablePath.match(/[\\/]Contents[\\/]MacOS[\\/]/i);
@@ -187,6 +193,7 @@ function applyFileSwap({ livePath, stagedPath, oldPath = `${livePath}.old`, comm
     transactionStarted = true;
     if (fs.existsSync(livePath)) { fs.renameSync(livePath, oldPath); movedLive = true; }
     fs.renameSync(stagedPath, livePath);
+    ensureExecutable(livePath);
     if (!fs.existsSync(livePath)) throw new Error('Updated application file is missing');
     if (commitPath) writeAtomic(commitPath, version);
     fs.rmSync(oldPath, { force: true });
@@ -219,4 +226,4 @@ function createWindowsSwapScript({ liveDir, stagedDir, oldDir = `${liveDir}.old`
   return `@echo off\r\nsetlocal\r\nset "movedLive=0"\r\n${wait}if exist "${oldDir}" (\r\n  if exist "${liveDir}" (\r\n    rmdir /s /q "${oldDir}" >nul 2>&1\r\n    if errorlevel 1 goto failed\r\n    if exist "${oldDir}" goto failed\r\n  ) else (\r\n    move "${oldDir}" "${liveDir}" >nul 2>&1\r\n    if errorlevel 1 goto failed\r\n    if not exist "${liveExe}" goto failed\r\n  )\r\n)\r\nif not exist "${stagedExe}" goto failed\r\nif exist "${liveDir}" (\r\n  move "${liveDir}" "${oldDir}" >nul 2>&1\r\n  if errorlevel 1 goto failed\r\n  if exist "${liveDir}" goto failed\r\n  set "movedLive=1"\r\n)\r\nmove "${stagedDir}" "${liveDir}" >nul 2>&1\r\nif errorlevel 1 goto rollback\r\nif exist "${stagedDir}" goto rollback\r\nif not exist "${liveExe}" goto rollback\r\n${commit}set "swapSucceeded=1"\r\nif exist "${oldDir}" if exist "${liveDir}" rmdir /s /q "${oldDir}" >nul 2>&1\r\nif "%swapSucceeded%"=="1" start "" "${relaunch}"\r\nset "exitCode=0"\r\ngoto done\r\n:rollback\r\nif exist "${liveDir}" (\r\n  rmdir /s /q "${liveDir}" >nul 2>&1\r\n  if exist "${liveDir}" goto failed\r\n)\r\nif "%movedLive%"=="1" (\r\n  move "${oldDir}" "${liveDir}" >nul 2>&1\r\n  if errorlevel 1 goto failed\r\n  if not exist "${liveExe}" goto failed\r\n)\r\n:failed\r\nif exist "${commitTemp}" del /f /q "${commitTemp}" >nul 2>&1\r\nset "exitCode=1"\r\n:done\r\nexit /b %exitCode%\r\n`;
 }
 
-module.exports = { extractUpdatePackage, applyDirectorySwap, applyFileSwap, createWindowsSwapScript, findExecutable, recoverDirectorySwap, getMacAppBundlePath, getPosixInstallUnit };
+module.exports = { extractUpdatePackage, applyDirectorySwap, applyFileSwap, createWindowsSwapScript, findExecutable, recoverDirectorySwap, getMacAppBundlePath, getPosixInstallUnit, ensureExecutable };

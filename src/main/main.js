@@ -18,7 +18,7 @@ const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
-const { extractUpdatePackage, applyDirectorySwap, applyFileSwap, getPosixInstallUnit, createWindowsSwapScript } = require('./update-apply');
+const { extractUpdatePackage, applyDirectorySwap, applyFileSwap, getPosixInstallUnit, ensureExecutable, createWindowsSwapScript } = require('./update-apply');
 const { cleanupOldKernelVersions } = require('./kernel-retention');
 
 // ─── Fix app name BEFORE anything else ───
@@ -949,6 +949,7 @@ ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
     const extracted = await extractUpdatePackage(pending.path, stagingRoot, pending.version, executableName);
     const stagedUnit = getPosixInstallUnit({ platform: process.platform, executablePath: extracted.executablePath });
     if (stagedUnit.kind !== 'directory') throw new Error('Staged update has an incompatible installation unit');
+    ensureExecutable(extracted.executablePath);
     const result = applyDirectorySwap({
       liveDir: liveUnit.livePath,
       stagedDir: stagedUnit.livePath,

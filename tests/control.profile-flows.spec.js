@@ -1078,6 +1078,7 @@ test('POSIX update helpers identify app bundles and atomically replace AppImage 
     expect(fs.readFileSync(livePath, 'utf8')).toBe('new');
     expect(fs.readFileSync(commitPath, 'utf8')).toBe('4.0.0');
     expect(fs.existsSync(`${livePath}.old`)).toBe(false);
+    if (process.platform !== 'win32') expect(fs.statSync(livePath).mode & 0o111).toBeTruthy();
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
