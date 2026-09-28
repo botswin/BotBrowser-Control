@@ -38,7 +38,7 @@ test('managed kernel downloads on profile creation and replaces a newer same-ver
   try {
     app = await _electron.launch({ args: ['.'], cwd: process.cwd(),
       env: { ...process.env, BOTBROWSER_TEST_USER_DATA_DIR: userDataDir,
-        BOTBROWSER_TEST_RELEASES_API_BASE: `http://127.0.0.1:${server.address().port}` } });
+        BOTBROWSER_TEST_RELEASES_API_BASE: `http://127.0.0.1:${server.address().port}`, BOTBROWSER_TEST_KERNEL_INTERVAL_MS: '500' } });
     const page = await app.firstWindow();
     await page.waitForLoadState('domcontentloaded');
     const profile = await page.evaluate(() => window.api.profiles.create({ name: 'Kernel fixture', userAgent: 'Mozilla/5.0 Chrome/151.0.0.0 Safari/537.36' }));
@@ -46,7 +46,7 @@ test('managed kernel downloads on profile creation and replaces a newer same-ver
       .toEqual(expect.arrayContaining([expect.objectContaining({ version: '151.0.0.1' })]));
 
     date = '20260928';
-    await page.evaluate(id => window.api.profiles.update(id, { name: 'Kernel fixture updated' }), profile.id);
+    // The short fixture interval must trigger this update without editing the profile.
     await expect.poll(() => page.evaluate(() => window.api.kernel.listInstalled()), { timeout: 15000 })
       .toEqual(expect.arrayContaining([expect.objectContaining({ version: '151.0.0.1', assetDate: '20260928' })]));
 
@@ -60,7 +60,7 @@ test('managed kernel downloads on profile creation and replaces a newer same-ver
     fs.rmSync(kernelsDir, { recursive: true, force: true });
     app = await _electron.launch({ args: ['.'], cwd: process.cwd(),
       env: { ...process.env, BOTBROWSER_TEST_USER_DATA_DIR: userDataDir,
-        BOTBROWSER_TEST_RELEASES_API_BASE: `http://127.0.0.1:${server.address().port}` } });
+        BOTBROWSER_TEST_RELEASES_API_BASE: `http://127.0.0.1:${server.address().port}`, BOTBROWSER_TEST_KERNEL_INTERVAL_MS: '500' } });
     const restarted = await app.firstWindow();
     await restarted.waitForLoadState('domcontentloaded');
     await expect.poll(() => restarted.evaluate(() => window.api.kernel.listInstalled()), { timeout: 15000 })

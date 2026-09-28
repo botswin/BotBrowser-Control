@@ -1830,11 +1830,16 @@ app.whenReady().then(async () => {
   setTimeout(() => updateManagedKernelsForProfiles().catch(error => console.warn('Managed kernel preparation failed:', error.message)), 1000);
   // Keep managed kernels current without blocking app startup or requiring a token.
   autoUpdateManagedKernels().catch(error => console.warn('Managed kernel update check failed:', error.message));
+  const testKernelInterval = Number(process.env.BOTBROWSER_TEST_KERNEL_INTERVAL_MS);
+  const kernelUpdateInterval = process.env.BOTBROWSER_TEST_USER_DATA_DIR &&
+    /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.BOTBROWSER_TEST_RELEASES_API_BASE || '') &&
+    Number.isSafeInteger(testKernelInterval) && testKernelInterval >= 100
+      ? testKernelInterval : 6 * 60 * 60 * 1000;
   managedKernelUpdateTimer = setInterval(() => {
     if (kernelDownloads.size !== 0) return;
     updateManagedKernelsForProfiles().catch(error => console.warn('Managed kernel preparation failed:', error.message));
     autoUpdateManagedKernels().catch(error => console.warn('Managed kernel update check failed:', error.message));
-  }, 6 * 60 * 60 * 1000);
+  }, kernelUpdateInterval);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
