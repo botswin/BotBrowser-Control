@@ -37,6 +37,7 @@ test.beforeEach(async () => {
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
+  await expect(page.locator('h1.view-title')).toHaveText('Profiles');
 });
 
 test.afterEach(async () => {

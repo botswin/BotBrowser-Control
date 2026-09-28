@@ -127,7 +127,7 @@
     bindEvents();
     render();
     // Check for updates in background after 2s
-    setTimeout(async () => { await checkForUpdates(); startPeriodicUpdateChecks(); }, 2000);
+    setTimeout(() => { checkForUpdates(); startPeriodicUpdateChecks(); }, 2000);
   }
 
   function proxyRecordUrl(proxy) {
