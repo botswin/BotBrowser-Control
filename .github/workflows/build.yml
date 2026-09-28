@@ -34,6 +34,11 @@ jobs:
       - name: Build macOS (x64 + arm64)
         run: npm run build:mac
 
+      - name: Smoke-test macOS update artifacts
+        run: |
+          UPDATE_SMOKE_PLATFORM=darwin UPDATE_SMOKE_ARCH=x64 node tests/update-artifact-smoke.js
+          UPDATE_SMOKE_PLATFORM=darwin UPDATE_SMOKE_ARCH=arm64 node tests/update-artifact-smoke.js
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -110,6 +115,11 @@ jobs:
 
       - name: Build Linux (x64 + arm64)
         run: npm run build:linux
+
+      - name: Smoke-test Linux update artifacts
+        run: |
+          UPDATE_SMOKE_PLATFORM=linux UPDATE_SMOKE_ARCH=x64 node tests/update-artifact-smoke.js
+          UPDATE_SMOKE_PLATFORM=linux UPDATE_SMOKE_ARCH=arm64 node tests/update-artifact-smoke.js
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
