@@ -1098,6 +1098,18 @@ test('Linux tar.gz update extraction rejects unsafe entries and finds the execut
     childProcess.execFileSync('tar', ['-czf', packagePath, '-C', payload, '.']);
     const extracted = await extractUpdatePackage(packagePath, path.join(root, 'stage'), '5.0.1', 'BotBrowser Control');
     expect(fs.readFileSync(extracted.executablePath, 'utf8')).toBe('linux-new');
+    const unsafePayload = path.join(root, 'unsafe-payload');
+    const unsafePackage = path.join(root, 'unsafe.tar.gz');
+    fs.mkdirSync(unsafePayload);
+    let unsafeReady = false;
+    try {
+      fs.symlinkSync('/tmp', path.join(unsafePayload, 'link-out'), 'dir');
+      childProcess.execFileSync('tar', ['-czf', unsafePackage, '-C', unsafePayload, '.']);
+      unsafeReady = true;
+    } catch {}
+    if (unsafeReady) await expect(extractUpdatePackage(unsafePackage, path.join(root, 'unsafe-stage'), '5.0.3', 'missing'))
+      .rejects.toThrow(/links are not allowed/);
+    else test.skip(true, 'symlink fixture is unavailable');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

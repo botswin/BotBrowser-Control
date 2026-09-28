@@ -53,6 +53,10 @@ async function extractTarGzUpdatePackage(packagePath, stagingRoot, version, exec
   const partial = path.join(stagingRoot, `.${version}.dist.part`);
   const target = path.join(stagingRoot, `${version}.dist`);
   if (fs.existsSync(target)) return { stagedDir: target, executablePath: findExecutable(target, executableName) };
+  const verboseListing = await execFileAsync('tar', ['-tvzf', packagePath]);
+  for (const line of verboseListing.stdout.split(/\r?\n/).filter(Boolean)) {
+    if (/^[lh]/i.test(line)) throw new Error('Invalid update archive: links are not allowed');
+  }
   const listing = await execFileAsync('tar', ['-tzf', packagePath]);
   for (const entryName of listing.stdout.split(/\r?\n/).filter(Boolean)) {
     const normalized = entryName.replace(/\\/g, '/');
