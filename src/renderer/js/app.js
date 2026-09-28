@@ -41,6 +41,8 @@
   let stagedControlUpdate = null;
   let controlUpdateBusy = false;
   let controlUpdateError = '';
+  let updateCheckInFlight = false;
+  let updateCheckTimer = null;
 
   // ─── Icons ────────────────────────────────────────────────────────────────────
   const I = {
@@ -125,7 +127,7 @@
     bindEvents();
     render();
     // Check for updates in background after 2s
-    setTimeout(checkForUpdates, 2000);
+    setTimeout(async () => { await checkForUpdates(); startPeriodicUpdateChecks(); }, 2000);
   }
 
   function proxyRecordUrl(proxy) {
@@ -215,12 +217,24 @@
   }
 
   async function checkForUpdates() {
+    if (updateCheckInFlight) return;
+    updateCheckInFlight = true;
     try {
       const info = await window.api.app.checkForUpdates();
       updateInfo = info;
       stagedControlUpdate = info.control?.version ? await window.api.app.getStagedUpdate(info.control.version) : null;
       if (info.newKernel || shouldShowControlUpdate(info.control, stagedControlUpdate)) showUpdateBanner(info);
-    } catch {}
+      return info;
+    } catch (error) {
+      return null;
+    } finally {
+      updateCheckInFlight = false;
+    }
+  }
+
+  function startPeriodicUpdateChecks() {
+    if (updateCheckTimer) clearInterval(updateCheckTimer);
+    updateCheckTimer = setInterval(() => checkForUpdates(), 10 * 60 * 1000);
   }
 
   function shouldShowControlUpdate(control, staged) {
