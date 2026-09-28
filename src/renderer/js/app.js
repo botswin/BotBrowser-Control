@@ -21,6 +21,8 @@
   let kernelInstalled = [];
   let kernelDownloads = {};
   let kernelCapabilities = null;
+  let kernelFetching = false;
+  let kernelFetchError = '';
 
   // IP check state (profileId -> result)
   let ipCheckResults = {};
@@ -212,16 +214,23 @@
   function bindNav() {
     document.querySelectorAll('[data-nav]').forEach(btn => {
       btn.addEventListener('click', () => {
+        const enteringKernels = btn.dataset.nav === 'kernels' && currentView !== 'kernels';
         currentView = btn.dataset.nav;
         selectedProfileIds.clear();
         render();
+        if (enteringKernels) fetchKernelReleases(true);
       });
     });
-    window.api.on('navigate', (view) => { currentView = view; render(); });
+    window.api.on('navigate', (view) => {
+      const enteringKernels = view === 'kernels' && currentView !== 'kernels';
+      currentView = view;
+      render();
+      if (enteringKernels) fetchKernelReleases(true);
+    });
     window.api.on('action', (action) => { if (action === 'new-profile') openProfileEditor(null); });
   }
 
-  // ─── Event Delegation ─────────────────────────────────────────────────────────
+  // Event delegation
   function bindEvents() {
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.context-menu')) {
@@ -320,7 +329,7 @@
       showToast(msg, 'success', 6000);
       window.api.kernel.listInstalled().then(list => {
         kernelInstalled = list;
-        if (currentView === 'settings') renderSettings();
+        if (currentView === 'kernels') renderKernels();
       });
     });
   }
@@ -385,6 +394,7 @@
     if (!main) return;
     if (currentView === 'profiles') renderProfiles();
     else if (currentView === 'sessions') renderSessions();
+    else if (currentView === 'kernels') renderKernels();
     else if (currentView === 'settings') renderSettings();
   }
 
@@ -870,6 +880,26 @@
   }
 
   // ─── Settings View ────────────────────────────────────────────────────────────
+  function renderKernels() {
+    const main = el('main-content');
+    if (!main) return;
+    main.innerHTML = `
+      <div class="view-header">
+        <div class="view-header-left">
+          <div class="view-title-icon">${I.cpu}</div>
+          <h1 class="view-title">Kernels</h1>
+        </div>
+        <div class="view-header-right">
+          <button class="btn btn-secondary btn-sm" data-action="kernel-refresh" id="kernel-refresh-btn" ${kernelFetching ? 'disabled' : ''}>${I.refresh} Refresh</button>
+        </div>
+      </div>
+      <div class="settings-scroll-wrap">
+        ${kernelFetching ? '<div class="kernel-loading">Refreshing kernels...</div>' : ''}
+        ${kernelFetchError ? `<div class="kernel-capability-warning" role="alert">${esc(kernelFetchError)}</div>` : ''}
+        ${renderKernelManager()}
+      </div>
+    `;
+  }
   function renderSettings() {
     const main = el('main-content');
     if (!main) return;
@@ -951,28 +981,6 @@
                 <input class="form-input" id="s-defaultProxy" value="${esc(s.defaultProxy || '')}" placeholder="socks5://host:port  or  http://user:pass@host:port">
                 <div class="form-hint">Supports HTTP, HTTPS, SOCKS4, SOCKS5. Default scheme: socks5://</div>
               </div>
-            </div>
-          </div>
-
-          <!-- Kernel Manager -->
-          <div class="settings-card" id="kernel-manager-card">
-            <div class="settings-card-header">
-              <div class="settings-card-icon" style="background:rgba(155,89,182,0.1);border-color:rgba(155,89,182,0.2)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:#9b59b6"><path d="M4 20h16v-2H4v2zm8-18L4 10h4v4h8v-4h4L12 2z"/></svg>
-              </div>
-              <div>
-                <div class="settings-card-title">Kernel Manager</div>
-                <div class="settings-card-desc">Download and install BotBrowser kernels from GitHub releases</div>
-              </div>
-              <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-                ${updateInfo && updateInfo.newKernel && updateInfo.kernel
-                  ? `<span class="update-pill">${I.bell} New: ${esc(updateInfo.kernel.tagName)}</span>`
-                  : ''}
-                <button class="btn btn-secondary btn-sm" data-action="kernel-refresh" id="kernel-refresh-btn">${I.refresh} Refresh</button>
-              </div>
-            </div>
-            <div class="settings-card-body">
-              ${renderKernelManager()}
             </div>
           </div>
 
@@ -1965,17 +1973,7 @@
                               platform === 'darwin' ? ['.dmg', '-mac'] :
                               ['.deb', '.AppImage', '-linux'];
 
-    if (!kernelReleases) {
-      return `<div class="kernel-loading">
-        <div style="color:var(--text-3);font-size:13px;padding:8px 0">
-          ${I.download} Click <strong>Refresh</strong> to fetch available releases from GitHub.
-        </div>
-      </div>`;
-    }
-
-    if (kernelReleases.length === 0) {
-      return `<div class="kernel-loading"><div style="color:var(--text-3);font-size:13px">No releases found.</div></div>`;
-    }
+    const releases = kernelReleases || [];
 
     const installedVersions = new Set(kernelInstalled.map(k => k.version));
     const capabilityNotice = kernelCapabilities && window.api.platform === 'win32' && !kernelCapabilities.sevenZipExtractor
@@ -2004,10 +2002,10 @@
         }
       </div>`;
 
-    const releasesSection = `
+    const releasesSection = releases.length ? `
       <div class="kernel-section-label" style="margin-top:16px">Available Releases</div>
       <div class="kernel-releases-list">
-        ${kernelReleases.map(release => {
+        ${releases.map(release => {
           const isInstalled = installedVersions.has(release.tagName);
           const dl = kernelDownloads[release.tagName];
           // Pick the single best asset for this platform to avoid double-downloads
@@ -2064,7 +2062,8 @@
             </div>
           </div>`;
         }).join('')}
-      </div>`;
+      </div>` : `<div class="kernel-section-label" style="margin-top:16px">Available Releases</div>
+        <div class="kernel-loading">${kernelFetching ? 'Checking releases...' : 'No releases available.'}</div>`;
 
     return capabilityNotice + installedSection + releasesSection;
   }
@@ -2078,30 +2077,24 @@
 
   async function fetchKernelReleases(force) {
     if (kernelReleases && !force) return;
-    const btn = document.getElementById('kernel-refresh-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '⟳ Fetching…'; }
-    try {
-      // Always refresh available releases from GitHub + installed from disk
-      const [releases, installed] = await Promise.all([
-        window.api.kernel.fetchReleases(),
-        window.api.kernel.listInstalled(),
-      ]);
-      kernelCapabilities = await window.api.kernel.getCapabilities();
-      kernelReleases = releases;
-      // Merge installed: keep existing entries, add/update from disk
-      const installedMap = {};
-      kernelInstalled.forEach(k => { installedMap[k.version] = k; });
-      installed.forEach(k => { installedMap[k.version] = k; });
-      kernelInstalled = Object.values(installedMap);
-    } catch (e) {
-      showToast(`Failed to fetch releases: ${e.message}`, 'error', 5000);
-      if (!kernelReleases) kernelReleases = [];
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '⟳ Refresh'; }
-      if (currentView === 'settings') renderSettings();
-    }
+    if (kernelFetching) return;
+    kernelFetching = true;
+    kernelFetchError = '';
+    if (currentView === 'kernels') renderKernels();
+    const [releases, installed, capabilities] = await Promise.allSettled([
+      window.api.kernel.fetchReleases(),
+      window.api.kernel.listInstalled(),
+      window.api.kernel.getCapabilities(),
+    ]);
+    if (releases.status === 'fulfilled') kernelReleases = releases.value;
+    else kernelFetchError = `Could not refresh releases: ${releases.reason?.message || releases.reason}`;
+    if (installed.status === 'fulfilled') kernelInstalled = installed.value;
+    else kernelFetchError += `${kernelFetchError ? ' ' : ''}Could not read installed kernels: ${installed.reason?.message || installed.reason}`;
+    if (capabilities.status === 'fulfilled') kernelCapabilities = capabilities.value;
+    else if (!kernelFetchError) kernelFetchError = `Could not check install support: ${capabilities.reason?.message || capabilities.reason}`;
+    kernelFetching = false;
+    if (currentView === 'kernels') renderKernels();
   }
-
   // Load cached releases from store on startup (so kernel manager shows immediately)
   async function loadCachedKernelReleases() {
     try {
@@ -2121,13 +2114,13 @@
   async function downloadKernel(version, url, filename) {
     if (kernelDownloads[version]?.status === 'downloading') return;
     kernelDownloads[version] = { progress: 0, status: 'downloading' };
-    if (currentView === 'settings') renderSettings();
+    if (currentView === 'kernels') renderKernels();
     try {
       await window.api.kernel.download({ downloadUrl: url, fileName: filename, version });
     } catch (e) {
       kernelDownloads[version] = { status: 'error' };
       showToast(`Download failed: ${e.message}`, 'error', 5000);
-      if (currentView === 'settings') renderSettings();
+      if (currentView === 'kernels') renderKernels();
     }
   }
 
@@ -2135,7 +2128,7 @@
     await window.api.kernel.cancelDownload(version);
     kernelDownloads[version] = { status: 'cancelled' };
     showToast(`Kernel ${version} download cancelled.`, 'info', 4000);
-    if (currentView === 'settings') renderSettings();
+    if (currentView === 'kernels') renderKernels();
   }
 
   function updateKernelProgressUI(version, progress) {
@@ -2154,7 +2147,7 @@
     await window.api.kernel.delete(version);
     kernelInstalled = kernelInstalled.filter(k => k.version !== version);
     showToast(`Kernel ${version} deleted.`, 'success');
-    if (currentView === 'settings') renderSettings();
+    if (currentView === 'kernels') renderKernels();
   }
 
   async function useKernelPath(execPath) {
@@ -2162,7 +2155,7 @@
     await window.api.settings.set({ botBrowserPath: execPath });
     settings.botBrowserPath = execPath;
     showToast('BotBrowser path updated to this kernel.', 'success');
-    if (currentView === 'settings') renderSettings();
+    if (currentView === 'kernels') renderKernels();
   }
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────────
