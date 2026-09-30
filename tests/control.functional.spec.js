@@ -1,4 +1,4 @@
-﻿const { test, expect } = require('@playwright/test');
+const { test, expect } = require('@playwright/test');
 const { getProcessExitEvents } = require('../src/main/process-exit');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -7,6 +7,31 @@ let app; let page; let userDataDir;
 test.beforeEach(async () => { userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-functional-')); app = await require('playwright')._electron.launch({ args: ['.'], cwd: process.cwd(), env: { ...process.env, BOTBROWSER_TEST_USER_DATA_DIR: userDataDir } }); page = await app.firstWindow(); await page.waitForLoadState('domcontentloaded'); await expect(page).toHaveTitle(/BotBrowser Control/i); });
 test.afterEach(async () => { try { if (app) await app.close(); } finally { app = null; if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true }); userDataDir = null; } });
 test('starts main window and preload contract', async () => { const api = await page.evaluate(() => ({ platform: window.api.platform, profiles: Object.keys(window.api.profiles), browser: Object.keys(window.api.browser), kernel: Object.keys(window.api.kernel) })); expect(api.platform).toBeTruthy(); expect(api.profiles).toEqual(expect.arrayContaining(['getAll', 'create', 'update', 'delete'])); expect(api.browser).toEqual(expect.arrayContaining(['launch', 'stop', 'getRunning'])); expect(api.kernel).toEqual(expect.arrayContaining(['getCachedReleases', 'listInstalled'])); });
+test('fresh install starts without sample profiles', async () => {
+  expect(await page.evaluate(() => window.api.profiles.getAll())).toEqual([]);
+});
+test('profile actions fit at default and minimum window widths', async () => {
+  await page.evaluate(() => window.api.profiles.create({ name: 'Layout fixture' }));
+  await page.reload();
+  const row = page.locator('.profile-card').first();
+  await expect(row).toBeVisible();
+  for (const width of [1280, 960]) {
+    await page.setViewportSize({ width, height: 720 });
+    const fit = await row.evaluate(element => {
+      const bounds = element.querySelector('.profile-actions').getBoundingClientRect();
+      const buttons = [...element.querySelectorAll('.profile-actions button')]
+        .filter(button => getComputedStyle(button).display !== 'none');
+      return buttons.length > 0 && buttons.every(button => {
+        const rect = button.getBoundingClientRect();
+        return rect.left >= bounds.left && rect.right <= bounds.right && rect.right <= innerWidth;
+      });
+    });
+    expect(fit).toBe(true);
+  }
+  await row.locator('[data-action="show-context"]').click();
+  await expect(page.locator('.context-menu [data-action="warmup-profile"]')).toBeVisible();
+});
+
 test('profile CRUD persists through store', async () => { const r = await page.evaluate(async () => { const p = await window.api.profiles.create({ name: 'Playwright baseline', cookies: '[{"name":"sid","value":"fixture"}]' }); const u = await window.api.profiles.update(p.id, { proxyServer: 'http://127.0.0.1:8080' }); const all = await window.api.profiles.getAll(); await window.api.profiles.delete(p.id); return { p, u, all }; }); expect(r.p.name).toBe('Playwright baseline'); expect(r.u.proxyServer).toBe('http://127.0.0.1:8080'); expect(r.all.some(p => p.id === r.p.id)).toBeTruthy(); });
 test('settings and proxy validation IPC are observable', async () => { const r = await page.evaluate(async () => { const old = await window.api.settings.get(); await window.api.settings.set({ defaultProxy: 'http://127.0.0.1:9' }); const s = await window.api.settings.get(); let error = ''; try { await window.api.proxy.checkIp('not-a-proxy'); } catch (e) { error = e.message; } await window.api.settings.set({ defaultProxy: old.defaultProxy }); return { s, error }; }); expect(r.s.defaultProxy).toBe('http://127.0.0.1:9'); expect(r.error).toMatch(/invalid proxy|ENOTFOUND|proxy/i); });
 test('kernel cache and installed-list boundaries are readable without real kernel', async () => { const r = await page.evaluate(async () => ({ cached: await window.api.kernel.getCachedReleases(), installed: await window.api.kernel.listInstalled(), dir: await window.api.kernel.getDir() })); expect(Array.isArray(r.cached) || r.cached === null).toBeTruthy(); expect(Array.isArray(r.installed)).toBeTruthy(); expect(r.dir).toBeTruthy(); });

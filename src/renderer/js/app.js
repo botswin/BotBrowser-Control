@@ -584,13 +584,15 @@
           <div class="search-wrap">
             <input class="search-input" id="search-input" placeholder="Search profiles…" value="${esc(searchQuery)}">
           </div>
+          <button class="btn btn-primary btn-sm" data-action="new-profile">${I.plus} New Profile</button>
+        </div>
+      </div>
+      <div class="toolbar profiles-toolbar">
           <button class="btn btn-ghost btn-sm" data-action="import-proxies">Import Proxies</button>
           <button class="btn btn-ghost btn-sm" data-action="export-profiles">Export</button>
           <button class="btn btn-ghost btn-sm" data-action="import-profiles">Import</button>
           <button class="btn btn-ghost btn-sm" data-action="export-csv">CSV Export</button>
           <button class="btn btn-ghost btn-sm" data-action="import-csv">CSV Import</button>
-          <button class="btn btn-primary btn-sm" data-action="new-profile">${I.plus} New Profile</button>
-        </div>
       </div>
 
       ${selectedProfileIds.size > 0 ? `
@@ -2051,6 +2053,7 @@
     const isRunning = runningSessions.some(s => s.profileId === profileId);
     menu.innerHTML = `
       <div class="context-menu-item" data-action="${isRunning?'stop-profile':'launch-profile'}" data-id="${profileId}">${isRunning?I.stop+' Stop':I.play+' Launch'}</div>
+      ${isRunning ? '' : `<div class="context-menu-item" data-action="warmup-profile" data-id="${profileId}">Warm up</div>`}
       <div class="context-menu-item" data-action="edit-profile" data-id="${profileId}">${I.edit} Edit</div>
       <div class="context-menu-item" data-action="duplicate-profile" data-id="${profileId}">${I.copy} Duplicate (with session)</div>
       <div class="context-menu-item" data-action="clear-user-data" data-id="${profileId}">${I.trash} Clear user data</div>
