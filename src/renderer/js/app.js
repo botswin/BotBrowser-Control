@@ -18,6 +18,7 @@
   let activeEditorTab = 'general';
   let selectedProfileIds = new Set();
   let settings = {};
+  let appVersion = '';
   const IS_WIN = window.api.platform === 'win32';
   const IS_MAC = window.api.platform === 'darwin';
 
@@ -117,6 +118,7 @@
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
   async function init() {
+    appVersion = await window.api.app.getVersion();
     settings = await window.api.settings.get();
     await loadProfiles();
     await loadProxies();
@@ -1129,7 +1131,7 @@
               <div class="about-grid">
                 <div class="about-item">
                   <span class="about-item-label">Version</span>
-                  <span class="about-item-value">1.1.0</span>
+                  <span class="about-item-value">${esc(appVersion)}</span>
                 </div>
                 <div class="about-item">
                   <span class="about-item-label">Platform</span>
@@ -1137,7 +1139,7 @@
                 </div>
                 <div class="about-item">
                   <span class="about-item-label">Support</span>
-                  <span class="about-item-value" style="color:var(--accent)">github.com/botswin/BotBrowser</span>
+                  <span class="about-item-value" style="color:var(--accent)">github.com/botswin/BotBrowser-Control</span>
                 </div>
               </div>
             </div>

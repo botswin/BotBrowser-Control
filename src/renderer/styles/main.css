@@ -40,7 +40,7 @@ body.dark {
 
   --text-1:        #e8edf5;
   --text-2:        #8899b4;
-  --text-3:        #4a5c78;
+  --text-3:        #9aaac2;
   --text-link:     #5dade2;
 
   --border:        rgba(255,255,255,0.055);
@@ -48,7 +48,7 @@ body.dark {
   --border-a:      rgba(52,152,219,0.28);
 
   --sidebar-bg:    #111827;
-  --sidebar-text:  #4a5c78;
+  --sidebar-text:  #a6b4ca;
   --sidebar-hover: rgba(255,255,255,0.05);
   --sidebar-active-bg: rgba(52,152,219,0.12);
   --sidebar-active-color: #5dade2;
@@ -96,7 +96,7 @@ body.light {
 
   --text-1:        #0f1923;
   --text-2:        #4a5c78;
-  --text-3:        #94a3b8;
+  --text-3:        #64748b;
   --text-link:     #2980b9;
 
   --border:        rgba(0,0,0,0.06);
@@ -104,7 +104,7 @@ body.light {
   --border-a:      rgba(41,128,185,0.2);
 
   --sidebar-bg:    #111827;
-  --sidebar-text:  #4a5c78;
+  --sidebar-text:  #a6b4ca;
   --sidebar-hover: rgba(255,255,255,0.05);
   --sidebar-active-bg: rgba(52,152,219,0.12);
   --sidebar-active-color: #5dade2;
@@ -195,7 +195,7 @@ html, body {
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.75);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -234,7 +234,7 @@ html, body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.65);
   padding: 8px 10px 4px;
 }
 
@@ -323,7 +323,7 @@ html, body {
 
 .stat-label {
   font-size: 9px;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.65);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -883,7 +883,7 @@ html, body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.65);
   margin-top: 4px;
 }
 .editor-nav-section:first-child { margin-top: 0; }
@@ -895,7 +895,7 @@ html, body {
   padding: 7px 10px;
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.75);
   cursor: pointer;
   border: none;
   background: transparent;
@@ -949,8 +949,8 @@ html, body {
 }
 .form-section-title svg { width: 13px; height: 13px; color: var(--accent); flex-shrink: 0; }
 
-.form-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.form-grid   { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .form-group  { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .form-group.full { grid-column: 1 / -1; }
 .input-with-action { display: flex; flex-direction: column; gap: 8px; }
@@ -1140,7 +1140,7 @@ html, body {
 /* About grid */
 .about-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1744,3 +1744,20 @@ body.light .update-banner { background: linear-gradient(90deg, rgba(41,128,185,0
 .proxy-row-actions .btn { margin-left: 4px; }
 @media (max-width: 760px) { .proxy-manager-fields { grid-template-columns: repeat(2, minmax(130px, 1fr)); } }
 @media (max-width: 480px) { .proxy-manager-fields { grid-template-columns: minmax(0, 1fr); } }
+/* Shared layout contract: readable controls with room to wrap. */
+.content, .editor-body, .view-header-right { min-width: 0; }
+.toolbar { flex-wrap: wrap; }
+.input-with-btn .form-input { flex: 1; min-width: 0; }
+.input-with-btn .btn { flex-shrink: 0; }
+.settings-card-body { display: flex; flex-direction: column; gap: 16px; }
+.form-section > .form-group + .form-group { margin-top: 12px; }
+.form-textarea + .btn { margin-top: 8px; align-self: flex-start; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 1000px) {
+  .form-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .view-header { height: auto; min-height: 52px; gap: 12px; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  .view-header-right { flex-wrap: wrap; }
+}
+
+body:has(.compact-update-notice) .toast-container { bottom: 84px; }
+.toast { max-width: min(420px, calc(100vw - 40px)); overflow-wrap: anywhere; }

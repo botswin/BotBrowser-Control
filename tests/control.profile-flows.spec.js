@@ -255,7 +255,9 @@ test('profile UI creates, edits, duplicates, searches, and deletes a profile', a
     await page.locator('[data-action="save-profile"]').click();
     await expect(card).toContainText('https://example.test/edited');
 
-    await card.locator('[data-action="duplicate-profile"]').click();
+    await card.locator('[data-action="show-context"]').click();
+    await expect(page.locator('.context-menu-item[data-action="duplicate-profile"]')).toBeVisible();
+    await page.locator('.context-menu-item[data-action="duplicate-profile"]').click();
     const copy = page.locator('.profile-card').filter({ has: page.locator('.profile-name', { hasText: `${name} (Copy)` }) });
     await expect(copy).toHaveCount(1);
     const profiles = await page.evaluate(async prefix => (await window.api.profiles.getAll()).filter(p => p.name.startsWith(prefix)), name);
@@ -1212,14 +1214,21 @@ test('cross-platform setup scripts bootstrap source builds for the host architec
   const windows = fs.readFileSync(path.join(__dirname, '..', 'setup-windows-source.ps1'), 'utf8');
   expect(linux).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
   expect(linux).toContain('node-v${NODE_VERSION}-linux-${node_arch}');
-  expect(linux).toContain('npm run build:linux');
+  expect(linux).toContain('x86_64|amd64) node_arch=x64; build_arch=x64 ;;');
+  expect(linux).toContain('aarch64|arm64) node_arch=arm64; build_arch=arm64 ;;');
+  expect(linux).toContain('./node_modules/.bin/electron-builder --linux AppImage --"$build_arch"');
   expect(linux).toContain('botbrowser-control.desktop');
   expect(mac).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
   expect(mac).toContain('node-v${NODE_VERSION}-darwin-${node_arch}');
-  expect(mac).toContain('npm run build:mac');
+  expect(mac).toContain('arm64) node_arch=arm64; build_arch=arm64 ;;');
+  expect(mac).toContain('x86_64) node_arch=x64; build_arch=x64 ;;');
+  expect(mac).toContain('npm run pack -- --mac');
+  expect(mac).toContain('--"$build_arch"');
   expect(mac).toContain('BotBrowser Control.app');
   expect(windows).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
-  expect(windows).toContain("'npm.cmd') run build:win:x64");
+  expect(windows).toContain("'X64' { 'x64' }");
+  expect(windows).toContain("'Arm64' { 'arm64' }");
+  expect(windows).toContain("'npm.cmd') run pack -- --win \"--$Arch\"");
   expect(windows).toContain('BotBrowser Control.lnk');
 });
 

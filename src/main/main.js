@@ -195,6 +195,7 @@ function buildMenu() {
 
 // ─── IPC: Profile Management ──────────────────────────────────────────────────
 
+ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('profiles:getAll', () => store.get('profiles', []));
 
 function buildCliCommand(profile) {

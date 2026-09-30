@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // App / Update checker
   app: {
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
     checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
     selectReleaseAsset: (options) => ipcRenderer.invoke('app:selectReleaseAsset', options),
     stageUpdate: (options) => ipcRenderer.invoke('app:stageUpdate', options),
