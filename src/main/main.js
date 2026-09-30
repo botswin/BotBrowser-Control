@@ -1013,7 +1013,7 @@ ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
         commitPath: path.join(stagingRoot, 'current.version'),
         markerPath: path.join(stagingRoot, `.${pending.version}.apply.json`),
       });
-      app.relaunch({ execPath: liveUnit.livePath });
+      app.relaunch({ execPath: liveUnit.livePath, args: process.argv.slice(1) });
       setTimeout(() => app.exit(0), 150);
       return { ...result, status: 'scheduled' };
     }

@@ -155,6 +155,7 @@ test('staged update apply is available for supported POSIX install units', () =>
   expect(applyHandler).not.toBeNull();
   expect(applyHandler[0]).toContain('getPosixInstallUnit');
   expect(applyHandler[0]).toContain('applyFileSwap');
+  expect(applyHandler[0]).toContain('app.relaunch({ execPath: liveUnit.livePath, args: process.argv.slice(1) });');
   expect(rendererSource).toContain('controlUpdateCanInstall(control)');
   expect(rendererSource).toContain('const controlAction = canApply');
 });
