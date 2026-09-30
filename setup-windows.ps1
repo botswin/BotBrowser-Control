@@ -7,7 +7,11 @@ param(
   [string]$Sha256
 )
 $ErrorActionPreference = 'Stop'
-$arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { throw 'Windows x64 is required' }
+$arch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
+  'X64' { 'x64' }
+  'Arm64' { 'arm64' }
+  default { throw 'Windows x64 or arm64 is required' }
+}
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("botbrowser-control-" + [guid]::NewGuid())
 $stage = Join-Path $temp 'stage'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null

@@ -1,5 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $NodeVersion = '24.15.0'
+$Arch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
+  'X64' { 'x64' }
+  'Arm64' { 'arm64' }
+  default { throw 'Windows x64 or arm64 is required' }
+}
 $InstallDir = if ($env:CONTROL_INSTALL_DIR) { $env:CONTROL_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'BotBrowser Control Source' }
 $NodeDir = Join-Path $InstallDir 'node'
 $RepoDir = Join-Path $InstallDir 'BotBrowser-Control'
@@ -8,12 +13,12 @@ $TempDir = Join-Path ([IO.Path]::GetTempPath()) ('botbrowser-control-' + [guid]:
 
 New-Item -ItemType Directory -Path $InstallDir, $TempDir -Force | Out-Null
 try {
-  if (-not (Test-Path (Join-Path $NodeDir 'node.exe')) -or (& (Join-Path $NodeDir 'node.exe') --version).Trim() -ne "v$NodeVersion") {
+  if (-not (Test-Path (Join-Path $NodeDir 'node.exe')) -or (& (Join-Path $NodeDir 'node.exe') --version).Trim() -ne "v$NodeVersion" -or (& (Join-Path $NodeDir 'node.exe') -p process.arch).Trim() -ne $Arch) {
     $NodeZip = Join-Path $TempDir 'node.zip'
-    Invoke-WebRequest "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip" -OutFile $NodeZip
+    Invoke-WebRequest "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-$Arch.zip" -OutFile $NodeZip
     if (Test-Path $NodeDir) { Remove-Item $NodeDir -Recurse -Force }
     Expand-Archive $NodeZip -DestinationPath $TempDir -Force
-    Move-Item (Join-Path $TempDir "node-v$NodeVersion-win-x64") $NodeDir
+    Move-Item (Join-Path $TempDir "node-v$NodeVersion-win-$Arch") $NodeDir
   }
 
   $RepoZip = Join-Path $TempDir 'control.zip'
@@ -26,10 +31,11 @@ try {
   Write-Host '[4/6] Installing Node.js dependencies (this may take several minutes)...'
   Push-Location $RepoDir
   & (Join-Path $NodeDir 'npm.cmd') ci
-  & (Join-Path $NodeDir 'npm.cmd') run build:win:x64
+  & (Join-Path $NodeDir 'npm.cmd') run pack -- --win "--$Arch"
   Pop-Location
 
-  $Exe = Join-Path $RepoDir 'dist\win-unpacked\BotBrowser Control.exe'
+  $UnpackedDir = if ($Arch -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
+  $Exe = Join-Path $RepoDir "dist\$UnpackedDir\BotBrowser Control.exe"
   if (-not (Test-Path $Exe)) { throw 'Windows build produced no executable' }
   $Shell = New-Object -ComObject WScript.Shell
   $Shortcut = $Shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'BotBrowser Control.lnk'))

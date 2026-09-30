@@ -19,7 +19,7 @@ case "$(uname -m)" in
   *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-if [ -x "$NODE_DIR/bin/node" ] && [ "$("$NODE_DIR/bin/node" --version)" != "v$NODE_VERSION" ]; then rm -rf "$NODE_DIR"; fi
+if [ -x "$NODE_DIR/bin/node" ] && { [ "$("$NODE_DIR/bin/node" --version)" != "v$NODE_VERSION" ] || [ "$("$NODE_DIR/bin/node" -p process.arch)" != "$node_arch" ]; }; then rm -rf "$NODE_DIR"; fi
 mkdir -p "$INSTALL_DIR"
 if [ ! -x "$NODE_DIR/bin/node" ]; then
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" -o "$TMP_DIR/node.tar.xz"
@@ -36,7 +36,7 @@ cd "$REPO_DIR"
 echo "[4/6] Installing Node.js dependencies (this may take several minutes)..."
 npm ci
 echo "[5/6] Building BotBrowser Control (this may take several minutes)..."
-npm run build:linux -- --"$build_arch"
+./node_modules/.bin/electron-builder --linux AppImage --"$build_arch"
 app="$(find "$REPO_DIR/dist" -maxdepth 3 -type f -name '*.AppImage' -print -quit)"
 [ -n "$app" ] || { echo 'Linux build produced no AppImage' >&2; exit 1; }
 chmod +x "$app"

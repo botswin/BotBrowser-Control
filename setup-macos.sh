@@ -18,7 +18,7 @@ case "$(uname -m)" in
   *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-if [ -x "$NODE_DIR/bin/node" ] && [ "$("$NODE_DIR/bin/node" --version)" != "v$NODE_VERSION" ]; then rm -rf "$NODE_DIR"; fi
+if [ -x "$NODE_DIR/bin/node" ] && { [ "$("$NODE_DIR/bin/node" --version)" != "v$NODE_VERSION" ] || [ "$("$NODE_DIR/bin/node" -p process.arch)" != "$node_arch" ]; }; then rm -rf "$NODE_DIR"; fi
 mkdir -p "$INSTALL_DIR"
 if [ ! -x "$NODE_DIR/bin/node" ]; then
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${node_arch}.tar.gz" -o "$TMP_DIR/node.tar.gz"
@@ -35,7 +35,7 @@ cd "$REPO_DIR"
 echo "[4/6] Installing Node.js dependencies (this may take several minutes)..."
 npm ci
 echo "[5/6] Building BotBrowser Control (this may take several minutes)..."
-npm run build:mac -- --"$build_arch"
+npm run pack -- --mac --"$build_arch"
 app="$(find "$REPO_DIR/dist" -maxdepth 3 -type d -name '*.app' -print -quit)"
 [ -n "$app" ] || { echo 'macOS build produced no .app bundle' >&2; exit 1; }
 mkdir -p "$HOME/Applications"
