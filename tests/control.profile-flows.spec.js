@@ -50,23 +50,53 @@ test('kernel delete rejects traversal and absolute paths without touching a pare
 });
 
 test('successful kernel extraction removes the downloaded archive', async () => {
-  const archive = await new JSZip().file('kernel-fixture.exe', 'MZ archive fixture').generateAsync({ type: 'nodebuffer' });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'control-kernel-extract-'));
+  let archive;
+  let fileName;
+  let installStatus;
+  if (process.platform === 'win32') {
+    archive = await new JSZip().file('chrome.exe', 'MZ archive fixture').generateAsync({ type: 'nodebuffer' });
+    fileName = 'kernel-fixture.zip';
+    installStatus = 'extracted';
+  } else if (process.platform === 'darwin') {
+    const executable = path.join(root, 'BotBrowser.app', 'Contents', 'MacOS', 'BotBrowser');
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.writeFileSync(path.join(root, 'BotBrowser.app', 'Contents', 'Info.plist'), '<plist><dict><key>CFBundleExecutable</key><string>BotBrowser</string></dict></plist>');
+    fs.writeFileSync(executable, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(executable, 0o755);
+    archive = path.join(root, 'kernel-fixture.dmg');
+    childProcess.execFileSync('hdiutil', ['create', '-ov', '-format', 'UDZO', '-srcfolder', path.join(root, 'BotBrowser.app'), archive], { stdio: 'ignore' });
+    fileName = 'kernel-fixture.dmg';
+    installStatus = 'installed';
+  } else {
+    const payload = path.join(root, 'payload');
+    const executable = path.join(payload, 'chrome');
+    fs.mkdirSync(payload);
+    fs.writeFileSync(executable, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(executable, 0o755);
+    archive = path.join(root, 'kernel-fixture.tar.gz');
+    childProcess.execFileSync('tar', ['-czf', archive, '-C', payload, '.'], { stdio: 'ignore' });
+    fileName = 'kernel-fixture.tar.gz';
+    installStatus = 'extracted';
+  }
+  const bytes = Buffer.isBuffer(archive) ? archive : fs.readFileSync(archive);
   const server = http.createServer((_request, response) => {
-    response.writeHead(200, { 'content-length': archive.length, 'content-type': 'application/zip' });
-    response.end(archive);
+    response.writeHead(200, { 'content-length': bytes.length, 'content-type': 'application/octet-stream' });
+    response.end(bytes);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const version = '149.0.' + Date.now() + '.0';
   try {
-    const result = await page.evaluate(({ url, version }) => window.api.kernel.download({
-      downloadUrl: url, fileName: 'kernel-fixture.zip', version
-    }), { url: 'http://127.0.0.1:' + server.address().port + '/kernel.zip', version });
-    expect(result.installStatus).toBe('extracted');
+    const result = await page.evaluate(({ url, version, fileName }) => window.api.kernel.download({
+      downloadUrl: url, fileName, version
+    }), { url: 'http://127.0.0.1:' + server.address().port + '/' + fileName, fileName, version });
+    expect(result.installStatus).toBe(installStatus);
     expect(fs.existsSync(result.destPath)).toBe(false);
     expect(fs.existsSync(result.execPath)).toBe(true);
   } finally {
     await page.evaluate(version => window.api.kernel.delete(version), version);
     await new Promise(resolve => server.close(resolve));
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -133,14 +163,24 @@ test('Control renderer downloads and applies staged update through real DOM inte
   await app.evaluate(({ ipcMain }) => {
     const calls = { stage: 0, apply: 0 };
     globalThis.__controlUpdateCalls = calls;
-    const manifest = { version: '1.2.3', assets: [{ platform: 'win32', arch: process.arch === 'arm64' ? 'arm64' : 'x64', name: process.arch === 'arm64' ? 'BotBrowser Control-1.2.3-arm64-win.zip' : 'BotBrowser Control-1.2.3-win.zip', url: 'https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/BotBrowser%20Control-1.2.3-win.zip', sha256: 'a'.repeat(64) }] };
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const platform = process.platform;
+    const format = platform === 'linux' ? 'appimage' : 'zip';
+    const name = platform === 'win32'
+      ? `BotBrowser Control-1.2.3${arch === 'arm64' ? '-arm64' : ''}-win.zip`
+      : platform === 'darwin'
+        ? `BotBrowser Control-1.2.3${arch === 'arm64' ? '-arm64' : ''}-mac.zip`
+        : `BotBrowser Control-1.2.3${arch === 'arm64' ? '-arm64' : ''}.AppImage`;
+    const manifest = { version: '1.2.3', assets: [{ platform, arch, format, name, url: `https://github.com/botswin/BotBrowser-Control/releases/download/v1.2.3/${encodeURIComponent(name)}`, sha256: 'a'.repeat(64) }] };
     ipcMain.removeHandler('app:checkForUpdates');
     ipcMain.removeHandler('app:getStagedUpdate');
+    ipcMain.removeHandler('app:getUpdateCapabilities');
     ipcMain.removeHandler('app:selectReleaseAsset');
     ipcMain.removeHandler('app:stageUpdate');
     ipcMain.removeHandler('app:applyStagedUpdate');
     ipcMain.handle('app:checkForUpdates', () => ({ kernel: null, newKernel: false, newControl: true, control: { tagName: 'v1.2.3', version: '1.2.3', isNewer: true, manifest } }));
     ipcMain.handle('app:getStagedUpdate', () => null);
+    ipcMain.handle('app:getUpdateCapabilities', () => ({ canInstall: true, platform, arch, format }));
     ipcMain.handle('app:selectReleaseAsset', (_, options) => options.manifest.assets[0]);
     ipcMain.handle('app:stageUpdate', () => { calls.stage++; return { status: 'staged', version: '1.2.3' }; });
     ipcMain.handle('app:applyStagedUpdate', () => { calls.apply++; return { status: 'scheduled', version: '1.2.3' }; });
@@ -426,6 +466,8 @@ test('proxy IP check fixture drives saved profile UI and failure reporting', asy
 
 test('kernel download reports progress, lists the installed fixture, and deletes it', async () => {
   const bytes = Buffer.from('MZ local kernel fixture');
+  const fileName = process.platform === 'win32' ? 'kernel-fixture.exe' : process.platform === 'linux' ? 'kernel-fixture.AppImage' : 'kernel-fixture.dmg';
+  const installStatus = process.platform === 'darwin' ? 'downloaded' : 'ready';
   let fail = false;
   const server = http.createServer((_request, response) => {
     if (fail) { response.writeHead(404); response.end('missing'); return; }
@@ -436,7 +478,7 @@ test('kernel download reports progress, lists the installed fixture, and deletes
   const { port } = server.address();
   const version = `fixture-${process.pid}-${Date.now()}`;
   try {
-    const result = await page.evaluate(async ({ url, version }) => {
+    const result = await page.evaluate(async ({ url, version, fileName }) => {
       const progress = [];
       const offProgress = window.api.on('kernel:downloadProgress', event => {
         if (event.version === version) progress.push(event.progress);
@@ -447,15 +489,15 @@ test('kernel download reports progress, lists the installed fixture, and deletes
         });
       });
       try {
-        const download = await window.api.kernel.download({ downloadUrl: url, fileName: 'kernel-fixture.exe', version });
+        const download = await window.api.kernel.download({ downloadUrl: url, fileName, version });
         return { download, complete: await complete, progress };
       } finally { offProgress(); }
-    }, { url: `http://127.0.0.1:${port}/kernel.exe`, version });
-    expect(result.download.installStatus).toBe('ready');
-    expect(result.complete).toMatchObject({ version, installStatus: 'ready' });
+    }, { url: `http://127.0.0.1:${port}/${fileName}`, fileName, version });
+    expect(result.download.installStatus).toBe(installStatus);
+    expect(result.complete).toMatchObject({ version, installStatus });
     expect(result.progress.at(-1)).toBe(100);
     const installed = await page.evaluate(() => window.api.kernel.listInstalled());
-    expect(installed.find(item => item.version === version)).toMatchObject({ fileName: 'kernel-fixture.exe', installStatus: 'ready' });
+    expect(installed.find(item => item.version === version)).toMatchObject({ fileName, installStatus });
     expect(await page.evaluate(version => window.api.kernel.delete(version), version)).toBe(true);
     expect((await page.evaluate(() => window.api.kernel.listInstalled())).some(item => item.version === version)).toBe(false);
 
@@ -509,9 +551,9 @@ test('kernel download can be cancelled and removes partial files', async () => {
 
 test('kernel manager exposes platform capabilities and extractor guidance', async () => {
   const capabilities = await page.evaluate(() => window.api.kernel.getCapabilities());
-  expect(capabilities).toMatchObject({ platform: 'win32', zipExtractor: true });
+  expect(capabilities).toMatchObject({ platform: process.platform, zipExtractor: true });
   expect(typeof capabilities.sevenZipExtractor).toBe('boolean');
-  if (!capabilities.sevenZipExtractor) {
+  if (capabilities.platform === 'win32' && !capabilities.sevenZipExtractor) {
     const version = `7z-missing-${Date.now()}`;
     const server = http.createServer((_request, response) => { response.writeHead(200, { 'content-length': 4 }); response.end('7z!'); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -1228,7 +1270,8 @@ test('cross-platform setup scripts bootstrap source builds for the host architec
   expect(windows).toContain('BotBrowser-Control/archive/refs/heads/main.zip');
   expect(windows).toContain("'X64' { 'x64' }");
   expect(windows).toContain("'Arm64' { 'arm64' }");
-  expect(windows).toContain("'npm.cmd') run pack -- --win \"--$Arch\"");
+  expect(windows).toContain("Invoke-NpmWithHeartbeat @('run', 'pack', '--', '--win', \"--$Arch\") '5/6' 'Packaging BotBrowser Control'");
+  expect(windows).toContain('if ($process.ExitCode -ne 0) { throw "$Description failed with exit code $($process.ExitCode)" }');
   expect(windows).toContain('BotBrowser Control.lnk');
 });
 

@@ -17,6 +17,7 @@ const { parseProxyLine, parseProxyText } = require('./proxy-parser');
 const { escapeCsv, parseCsv } = require('./csv');
 const { runWarmupUrls } = require('./warmup');
 const { createReleaseManifest, selectReleaseAsset } = require('./release-manifest');
+const { getUpdateCapabilities } = require('./update-capabilities');
 const { stageUpdate, getStagedUpdate, cancelStagedUpdate } = require('./update-stage');
 const { extractUpdatePackage, applyDirectorySwap, applyFileSwap, getPosixInstallUnit, ensureExecutable, createWindowsSwapScript } = require('./update-apply');
 const { cleanupOldKernelVersions } = require('./kernel-retention');
@@ -986,16 +987,24 @@ ipcMain.handle('app:checkForUpdates', async () => {
 });
 
 ipcMain.handle('app:selectReleaseAsset', (_, { manifest, platform, arch, format }) => selectReleaseAsset(manifest, platform, arch, format));
+ipcMain.handle('app:getUpdateCapabilities', () => getUpdateCapabilities({
+  isPackaged: app.isPackaged, platform: process.platform, arch: process.arch, executablePath: process.execPath,
+  appImagePath: process.platform === 'linux' ? process.env.APPIMAGE : undefined,
+}));
 ipcMain.handle('app:stageUpdate', (_, options) => stageUpdate({ ...options, stagingDir: path.join(app.getPath('userData'), 'updates') }));
 ipcMain.handle('app:getStagedUpdate', (_, version) => getStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:cancelStagedUpdate', (_, version) => cancelStagedUpdate({ stagingDir: path.join(app.getPath('userData'), 'updates'), version }));
 ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
+  if (!app.isPackaged) throw new Error('Control updates require a packaged installation');
   const stagingRoot = path.join(app.getPath('userData'), 'updates');
   const pending = getStagedUpdate({ stagingDir: stagingRoot, version });
   if (!pending) throw new Error('No staged update found');
   const liveDir = path.dirname(process.execPath);
   if (!IS_WIN) {
-    const liveUnit = getPosixInstallUnit({ platform: process.platform, executablePath: process.execPath });
+    const liveUnit = getPosixInstallUnit({
+      platform: process.platform, executablePath: process.execPath,
+      appImagePath: process.platform === 'linux' ? process.env.APPIMAGE : undefined,
+    });
     if (liveUnit.kind === 'file') {
       const result = applyFileSwap({
         livePath: liveUnit.livePath,
@@ -1004,7 +1013,7 @@ ipcMain.handle('app:applyStagedUpdate', async (_, version) => {
         commitPath: path.join(stagingRoot, 'current.version'),
         markerPath: path.join(stagingRoot, `.${pending.version}.apply.json`),
       });
-      app.relaunch();
+      app.relaunch({ execPath: liveUnit.livePath });
       setTimeout(() => app.exit(0), 150);
       return { ...result, status: 'scheduled' };
     }

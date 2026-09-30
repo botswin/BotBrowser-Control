@@ -1,4 +1,6 @@
-const fs = require('fs');
+const fs = (() => {
+  try { return require('original-fs'); } catch { return require('fs'); }
+})();
 const path = require('path');
 const { execFile } = require('child_process');
 const JSZip = require('jszip');
@@ -27,13 +29,24 @@ function getMacAppBundlePath(executablePath) {
   return bundlePath;
 }
 
-function getPosixInstallUnit({ platform, executablePath }) {
+function getPosixInstallUnit({ platform, executablePath, appImagePath }) {
   assertAbsolute('application executable', executablePath);
   if (platform === 'darwin') {
     const livePath = getMacAppBundlePath(executablePath);
     return { kind: 'directory', livePath, executableRelative: path.relative(livePath, executablePath) };
   }
   if (platform === 'linux') {
+    if (appImagePath) {
+      assertAbsolute('AppImage installation', appImagePath);
+      const originalPath = fs.realpathSync(appImagePath);
+      if (!/\.appimage$/i.test(originalPath) || !fs.statSync(originalPath).isFile()) {
+        throw new Error('Invalid AppImage installation');
+      }
+      return { kind: 'file', livePath: originalPath };
+    }
+    if (/[\\/](?:\.mount_[^\\/]*|appimage_extracted_[^\\/]*|squashfs-root)[\\/]/i.test(executablePath)) {
+      throw new Error('AppImage updates require the original installation path');
+    }
     if (/\.appimage$/i.test(executablePath)) return { kind: 'file', livePath: executablePath };
     return { kind: 'directory', livePath: path.dirname(executablePath), executableRelative: path.basename(executablePath) };
   }
