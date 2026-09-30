@@ -9,24 +9,51 @@ const { execFileSync } = require('node:child_process');
 test('managed kernel downloads on profile creation and replaces a newer same-version asset', async () => {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-managed-kernel-'));
   const userDataDir = path.join(fixtureDir, 'user-data');
-  const exe = path.join(fixtureDir, 'chrome.exe');
-  const archive = path.join(fixtureDir, 'kernel.7z');
-  fs.writeFileSync(exe, 'MZ fake executable fixture');
-  execFileSync('7z', ['a', '-t7z', archive, exe], { stdio: 'ignore' });
-  const bytes = fs.readFileSync(archive);
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   let date = '20260927';
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+  let archive;
+  let assetName;
+  if (platform === 'win') {
+    const exe = path.join(fixtureDir, 'chrome.exe');
+    archive = path.join(fixtureDir, 'kernel.7z');
+    fs.writeFileSync(exe, 'MZ fake executable fixture');
+    execFileSync('7z', ['a', '-t7z', archive, exe], { stdio: 'ignore' });
+    assetName = `botbrowser_${date}_151.0.0.1_win_${arch}.7z`;
+  } else if (platform === 'mac') {
+    const appDir = path.join(fixtureDir, 'BotBrowser.app');
+    const macosDir = path.join(appDir, 'Contents', 'MacOS');
+    fs.mkdirSync(macosDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'Contents', 'Info.plist'), '<plist><dict><key>CFBundleExecutable</key><string>BotBrowser</string></dict></plist>');
+    fs.writeFileSync(path.join(macosDir, 'BotBrowser'), '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(path.join(macosDir, 'BotBrowser'), 0o755);
+    archive = path.join(fixtureDir, 'kernel.dmg');
+    execFileSync('hdiutil', ['create', '-ov', '-format', 'UDZO', '-srcfolder', appDir, archive], { stdio: 'ignore' });
+    assetName = `botbrowser_${date}_151.0.0.1_mac_${arch}.dmg`;
+  } else {
+    const packageDir = path.join(fixtureDir, 'package');
+    const exe = path.join(packageDir, 'usr', 'bin', 'chrome');
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.mkdirSync(path.join(packageDir, 'DEBIAN'));
+    fs.writeFileSync(path.join(packageDir, 'DEBIAN', 'control'), 'Package: botbrowser-fixture\nVersion: 1.0\nArchitecture: all\nMaintainer: test <test@example.invalid>\nDescription: fixture\n');
+    fs.writeFileSync(exe, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(exe, 0o755);
+    archive = path.join(fixtureDir, 'kernel.deb');
+    execFileSync('dpkg-deb', ['--build', packageDir, archive], { stdio: 'ignore' });
+    assetName = `botbrowser_${date}_151.0.0.1_linux_${arch}.deb`;
+  }
+  const bytes = fs.readFileSync(archive);
   let failLookup = false;
   const server = http.createServer((request, response) => {
     if (request.url === '/repos/botswin/BotBrowser/releases') {
       response.writeHead(failLookup ? 503 : 200, { 'content-type': 'application/json' });
       response.end(failLookup ? '{}' : JSON.stringify([{
         id: 1, tag_name: 'v151.0.0.1', prerelease: false,
-        assets: [{ name: `botbrowser_${date}_151.0.0.1_win_${arch}.7z`, browser_download_url: `http://127.0.0.1:${server.address().port}/asset.7z` }],
+        assets: [{ name: assetName.replace(/\d{8}/, date), browser_download_url: `http://127.0.0.1:${server.address().port}/asset` }],
       }]));
       return;
     }
-    if (request.url === '/asset.7z') {
+    if (request.url === '/asset') {
       response.writeHead(200, { 'content-type': 'application/x-7z-compressed', 'content-length': bytes.length });
       response.end(bytes);
       return;

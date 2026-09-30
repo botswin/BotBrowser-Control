@@ -58,7 +58,7 @@ test('Kernels is independent from Settings and refreshes on each entry', async (
   failReleases = true;
   await page.locator('#nav-settings').click();
   await page.locator('#nav-kernels').click();
-  await expect(page.getByRole('alert')).toContainText('Could not refresh releases');
+  await expect(page.getByRole('alert')).toContainText('Could not refresh kernel releases. Check your connection and retry.');
   await expect(page.locator('.kernel-version-tag')).toContainText(['v151.0.0.1']);
   expect(releaseRequests).toBe(2);
 });

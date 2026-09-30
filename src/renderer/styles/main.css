@@ -230,7 +230,7 @@ html, body {
 .nav-section { display: flex; flex-direction: column; gap: 2px; }
 
 .nav-section-label {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -280,14 +280,14 @@ html, body {
 
 .nav-badge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 20px;
   min-width: 18px;
   text-align: center;
   background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.75);
 }
 
 .nav-badge.live {
@@ -322,7 +322,7 @@ html, body {
 }
 
 .stat-label {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.65);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -627,6 +627,10 @@ html, body {
   flex-shrink: 0;
 }
 .checkbox-wrap input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+.checkbox-wrap input:focus-visible + .checkmark {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .checkbox-wrap input:checked + .checkmark::after {
   content: '';
   position: absolute;
@@ -829,6 +833,7 @@ html, body {
   border-radius: 14px;
   width: 100%;
   max-width: 900px;
+  height: min(760px, calc(100vh - 40px));
   max-height: 92vh;
   display: flex;
   flex-direction: column;

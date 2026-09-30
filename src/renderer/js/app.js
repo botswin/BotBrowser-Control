@@ -18,7 +18,9 @@
   let activeEditorTab = 'general';
   let selectedProfileIds = new Set();
   let settings = {};
+  let initialized = false;
   let appVersion = '';
+  let updateCapabilities = { canInstall: false };
   const IS_WIN = window.api.platform === 'win32';
   const IS_MAC = window.api.platform === 'darwin';
 
@@ -42,6 +44,11 @@
   let stagedControlUpdate = null;
   let controlUpdateBusy = false;
   let controlUpdateError = '';
+  const CONTROL_UPDATE_MESSAGES = {
+    install_path_unavailable: 'Automatic install unavailable. Open release page.',
+    capability_check_failed: 'Automatic install support unavailable. Open release page.',
+    install_failed: 'Could not prepare update. Open release page.'
+  };
   let updateCheckInFlight = false;
   let updateCheckTimer = null;
 
@@ -112,21 +119,28 @@
     s = s.trim();
     // Strip duplicate scheme: e.g. socks5://socks5:// → socks5://
     s = s.replace(/^(socks5?[ah]?|https?):\/\/(socks5?[ah]?|https?):\/\//i, '$1://');
-    if (!/^[a-z]+:\/\//i.test(s)) return 'socks5://' + s;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) return 'socks5://' + s;
     return s;
   }
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
   async function init() {
+    settings = {};
+    bindNav();
+    bindEvents();
     appVersion = await window.api.app.getVersion();
+    try {
+      updateCapabilities = await window.api.app.getUpdateCapabilities();
+    } catch {
+      updateCapabilities = { canInstall: false, reason: 'capability_check_failed' };
+    }
     settings = await window.api.settings.get();
     await loadProfiles();
     await loadProxies();
     await refreshRunningSessions();
     // Load cached kernel releases so Kernel Manager shows immediately on open
     await loadCachedKernelReleases();
-    bindNav();
-    bindEvents();
+    initialized = true;
     render();
     // Check for updates in background after 2s
     setTimeout(() => { checkForUpdates(); startPeriodicUpdateChecks(); }, 2000);
@@ -244,21 +258,22 @@
   }
 
   function controlUpdateCanInstall(control) {
-    const arch = window.api.arch === 'arm64' ? 'arm64' : 'x64';
-    return Boolean(IS_WIN && control?.manifest?.assets?.some(asset => asset.platform === 'win32' && asset.arch === arch));
+    const { canInstall, platform, arch, format } = updateCapabilities;
+    return Boolean(canInstall && control?.manifest?.assets?.some(asset =>
+      asset.platform === platform && asset.arch === arch && asset.format === format));
   }
 
   async function stageControlUpdate() {
-    if (!updateInfo?.control || controlUpdateBusy) return;
+    if (!updateInfo?.control || controlUpdateBusy || !controlUpdateCanInstall(updateInfo.control)) return;
     controlUpdateBusy = true;
     controlUpdateError = '';
     showUpdateBanner(updateInfo);
     try {
-      const arch = window.api.arch === 'arm64' ? 'arm64' : 'x64';
-      const asset = await window.api.app.selectReleaseAsset({ manifest: updateInfo.control.manifest, platform: 'win32', arch });
+      const { platform, arch, format } = updateCapabilities;
+      const asset = await window.api.app.selectReleaseAsset({ manifest: updateInfo.control.manifest, platform, arch, format });
       stagedControlUpdate = await window.api.app.stageUpdate({ url: asset.url, sha256: asset.sha256, version: asset.version });
-    } catch (error) {
-      controlUpdateError = error?.message || String(error);
+    } catch {
+      controlUpdateError = CONTROL_UPDATE_MESSAGES.install_failed;
     } finally {
       controlUpdateBusy = false;
       showUpdateBanner(updateInfo);
@@ -267,11 +282,12 @@
 
   async function applyControlUpdate() {
     const version = stagedControlUpdate?.version;
-    if (!version || !window.confirm(`Install BotBrowser Control ${version} and restart now?`)) return;
+    if (!version || !updateInfo?.control || controlUpdateBusy || !controlUpdateCanInstall(updateInfo.control)) return;
+    if (!window.confirm(`Install BotBrowser Control ${version} and restart now?`)) return;
     try {
       await window.api.app.applyStagedUpdate(version);
-    } catch (error) {
-      controlUpdateError = error?.message || String(error);
+    } catch {
+      controlUpdateError = CONTROL_UPDATE_MESSAGES.install_failed;
       showUpdateBanner(updateInfo);
     }
   }
@@ -284,13 +300,23 @@
     if (info.newKernel && info.kernel) parts.push(`🧠 New BotBrowser kernel: <strong>${esc(info.kernel.tagName)}</strong>`);
     const control = info.control;
     const showControl = shouldShowControlUpdate(control, stagedControlUpdate);
+    if (showControl && control && !controlUpdateCanInstall(control)) {
+      const message = CONTROL_UPDATE_MESSAGES[updateCapabilities.reason];
+      if (message) parts.push(message);
+    }
     if (showControl && control) {
-      const status = controlUpdateBusy ? 'Downloading update…' : stagedControlUpdate ? `Ready to install v${esc(stagedControlUpdate.version)}` : controlUpdateError ? esc(controlUpdateError) : '';
+      const status = controlUpdateBusy
+        ? 'Downloading update…'
+        : controlUpdateError
+          ? esc(controlUpdateError)
+          : stagedControlUpdate
+            ? `Ready to install v${esc(stagedControlUpdate.version)}`
+            : '';
       parts.push(`🚀 New Control app: <strong>v${esc(control.version)}</strong> ${stagedControlUpdate ? 'staged' : 'available'}${status ? ` <small>${status}</small>` : ''}`);
     }
     if (!parts.length) return;
     const canInstall = showControl && controlUpdateCanInstall(control);
-    const canApply = showControl && Boolean(stagedControlUpdate);
+    const canApply = showControl && Boolean(stagedControlUpdate) && controlUpdateCanInstall(control);
     const controlAction = canApply
       ? '<button class="btn btn-primary btn-sm" data-action="apply-control-update">Restart to install</button>'
       : canInstall
@@ -514,6 +540,7 @@
   function renderView() {
     const main = el('main-content');
     if (!main) return;
+    if (!initialized) { main.textContent = 'Loading local data...'; return; }
     if (currentView === 'profiles') renderProfiles();
     else if (currentView === 'sessions') renderSessions();
     else if (currentView === 'proxies') renderProxies();
@@ -597,12 +624,11 @@
           <button class="btn btn-ghost btn-sm" data-action="import-csv">CSV Import</button>
       </div>
 
-      ${selectedProfileIds.size > 0 ? `
-      <div id="bulk-action-bar" class="bulk-action-bar">
+      <div id="bulk-action-bar" class="bulk-action-bar" style="display:${selectedProfileIds.size > 0 ? 'flex' : 'none'}">
         <span class="bulk-count">${selectedProfileIds.size} selected</span>
         <button class="btn btn-danger btn-sm" data-action="delete-selected">${I.trash} Delete Selected</button>
         <button class="btn btn-ghost btn-sm" data-action="clear-selection">✕ Clear</button>
-      </div>` : `<div id="bulk-action-bar" class="bulk-action-bar" style="display:none"></div>`}
+      </div>
 
       ${visible.length === 0 ? `
         <div class="empty-state">
@@ -816,7 +842,7 @@
     inp.addEventListener('blur', () => {
       // Small delay so a click on the recheck button doesn't prematurely cancel
       setTimeout(() => {
-        if (inlineProxyEditId === profileId) saveInlineProxy(profileId);
+        if (inp.isConnected && inlineProxyEditId === profileId) saveInlineProxy(profileId);
       }, 150);
     });
   }
@@ -1064,7 +1090,7 @@
             </div>
             <div class="settings-card-body">
               <div class="form-group full">
-                <label class="form-label">Executable Mode</label>
+                <label class="form-label" for="s-executableMode">Executable Mode</label>
                 <select class="form-input" id="s-executableMode">
                   <option value="managed" ${s.executableMode !== 'custom' ? 'selected' : ''}>Auto (managed kernel)</option>
                   <option value="custom" ${s.executableMode === 'custom' ? 'selected' : ''}>Custom path (advanced)</option>
@@ -1074,7 +1100,7 @@
               <details class="advanced-settings" ${s.executableMode === 'custom' ? 'open' : ''}>
                 <summary>Advanced executable override</summary>
                 <div class="form-group full">
-                  <label class="form-label">Executable Path</label>
+                  <label class="form-label" for="s-botBrowserPath">Executable Path</label>
                   <div class="input-with-btn">
                     <input class="form-input font-mono" id="s-botBrowserPath" value="${esc(s.botBrowserPath || '')}" placeholder="${esc(defaultPath)}" ${s.executableMode === 'custom' ? '' : 'disabled'}>
                     <button class="btn btn-secondary btn-sm" data-action="browse-exe">${I.folder} Browse</button>
@@ -1083,7 +1109,7 @@
                 </div>
               </details>
               <div class="form-group full" style="margin-top:14px">
-                <label class="form-label">Default User Data Directory</label>
+                <label class="form-label" for="s-defaultUserDataDir">Default User Data Directory</label>
                 <div class="input-with-btn">
                   <input class="form-input font-mono" id="s-defaultUserDataDir" value="${esc(s.defaultUserDataDir || '')}" placeholder="Leave blank to use app data folder">
                   <button class="btn btn-secondary btn-sm" data-action="browse-userdata">${I.folder} Browse</button>
@@ -1106,7 +1132,7 @@
             </div>
             <div class="settings-card-body">
               <div class="form-group full">
-                <label class="form-label">Proxy Server</label>
+                <label class="form-label" for="s-defaultProxy">Proxy Server</label>
                 <input class="form-input" id="s-defaultProxy" value="${esc(s.defaultProxy || '')}" placeholder="socks5://host:port  or  http://user:pass@host:port">
                 <div class="form-hint">Supports HTTP, HTTPS, SOCKS4, SOCKS5. Default scheme: socks5://</div>
               </div>
@@ -1283,6 +1309,7 @@
     overlay.addEventListener('click', e => { if (e.target === overlay) closeProfileEditor(); });
     renderCustomHeadersUI(d.customHeaders || {});
     renderEditorNav(tabs);
+    overlay.querySelector('#f-name')?.focus();
   }
 
   function renderEditorNav(tabs = editorTabs) {
@@ -1365,52 +1392,52 @@
         <div class="form-section-title">${I.user} Profile Identity</div>
         <div class="form-grid">
           <div class="form-group full">
-            <label class="form-label">Profile Name *</label>
+            <label class="form-label" for="f-name">Profile Name *</label>
             <input class="form-input" id="f-name" type="text" placeholder="e.g. Work Account 1" value="${esc(d.name||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Group</label>
+            <label class="form-label" for="f-group">Group</label>
             <input class="form-input" id="f-group" type="text" value="${esc(d.group||'')}">
           </div>
           <div class="form-group full">
-            <label class="form-label">Description</label>
+            <label class="form-label" for="f-description">Description</label>
             <textarea class="form-input" id="f-description" rows="2">${esc(d.description||'')}</textarea>
           </div>
           <div class="form-group">
-            <label class="form-label">Browser Brand ${badge('ENT Tier2')}</label>
+            <label class="form-label" for="f-browserBrand">Browser Brand ${badge('ENT Tier2')}</label>
             <select class="form-select" id="f-browserBrand">
               <option value=""${!d.browserBrand?' selected':''}>From Profile</option>
               ${['chrome','chromium','edge','brave','opera','webview'].map(b=>`<option value="${b}"${d.browserBrand===b?' selected':''}>${b.charAt(0).toUpperCase()+b.slice(1)}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Color Scheme</label>
+            <label class="form-label" for="f-colorScheme">Color Scheme</label>
             <select class="form-select" id="f-colorScheme">
               <option value="light"${d.colorScheme==='light'?' selected':''}>Light</option>
               <option value="dark"${d.colorScheme==='dark'?' selected':''}>Dark</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Kernel Override</label>
+            <label class="form-label" for="f-kernel">Kernel Override</label>
             <input class="form-input" id="f-kernel" type="text" inputmode="numeric" placeholder="Auto" value="${esc(d.kernel||'')}">
           </div>
           <div class="form-group full">
-            <label class="form-label">Start URL</label>
+            <label class="form-label" for="f-startUrl">Start URL</label>
             <input class="form-input" id="f-startUrl" type="text" placeholder="https://example.com" value="${esc(d.startUrl||'')}">
           </div>
           <div class="form-group full">
-            <label class="form-label">Warm-up URLs</label>
+            <label class="form-label" for="f-warmupUrls">Warm-up URLs</label>
             <textarea class="form-input" id="f-warmupUrls" rows="3" placeholder="One http(s) URL per line">${esc(d.warmupUrls||'')}</textarea>
           </div>
           <div class="form-group full">
-            <label class="form-label">Profile File (.enc) ${badge('recommended')}</label>
+            <label class="form-label" for="f-profileFilePath">Profile File (.enc) ${badge('recommended')}</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-profileFilePath" placeholder="Select a .enc profile file…" value="${esc(d.profileFilePath||'')}">
               <button class="btn btn-secondary btn-sm" data-action="browse-file" data-target="f-profileFilePath" data-filter="enc">Browse</button>
             </div>
           </div>
           <div class="form-group full">
-            <label class="form-label">Profile Directory ${badge('--bot-profile-dir')}</label>
+            <label class="form-label" for="f-profileDirPath">Profile Directory ${badge('--bot-profile-dir')}</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-profileDirPath" placeholder="Directory with multiple .enc files…" value="${esc(d.profileDirPath||'')}">
               <button class="btn btn-secondary btn-sm" data-action="browse-dir" data-target="f-profileDirPath">Browse</button>
@@ -1427,22 +1454,22 @@
         <div class="form-section-title">${I.network} Proxy Configuration</div>
         <div class="form-grid">
           <div class="form-group full">
-            <label class="form-label">Proxy Server</label>
+            <label class="form-label" for="f-proxyServer">Proxy Server</label>
             <select class="form-input" id="f-savedProxy" aria-label="Use saved proxy"><option value="">Use saved proxy...</option>${proxies.map(proxy => `<option value="${esc(proxy.id)}">${esc(proxy.name)}</option>`).join('')}</select>
             <input class="form-input" id="f-proxyServer" placeholder="socks5://host:port or http://user:pass@host:port" value="${esc(d.proxyServer||'')}">
             <div class="form-hint">Default scheme: socks5://. Supports HTTP, HTTPS, SOCKS4, SOCKS5.</div>
           </div>
           <div class="form-group full">
-            <label class="form-label">Proxy IP ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-proxyIp">Proxy IP ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-proxyIp" placeholder="203.0.113.1" value="${esc(d.proxyIp||'')}">
             <div class="form-hint">Skip per-page IP lookups for better performance.</div>
           </div>
           <div class="form-group full">
-            <label class="form-label">Proxy Bypass Regex ${badge('PRO')}</label>
+            <label class="form-label" for="f-proxyBypassRgx">Proxy Bypass Regex ${badge('PRO')}</label>
             <input class="form-input font-mono" id="f-proxyBypassRgx" placeholder="\\.js($|\\?)" value="${esc(d.proxyBypassRgx||'')}">
           </div>
           <div class="form-group full">
-            <label class="form-label">Proxy PAC URL</label>
+            <label class="form-label" for="f-proxyPacUrl">Proxy PAC URL</label>
             <input class="form-input" id="f-proxyPacUrl" placeholder="file:///path/proxy.pac" value="${esc(d.proxyPacUrl||'')}">
           </div>
         </div>
@@ -1451,19 +1478,19 @@
         <div class="form-section-title">${I.globe} Locale & Geo</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Timezone ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-timezone">Timezone ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-timezone" placeholder="auto" value="${esc(d.timezone||'auto')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Locale ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-locale">Locale ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-locale" placeholder="auto" value="${esc(d.locale||'auto')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Languages ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-languages">Languages ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-languages" placeholder="auto" value="${esc(d.languages||'auto')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Location ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-location">Location ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-location" placeholder="auto" value="${esc(d.location||'auto')}">
           </div>
         </div>
@@ -1477,15 +1504,15 @@
         <div class="form-section-title">${I.network} IP & WebRTC</div>
         <div class="form-grid">
           <div class="form-group full">
-            <label class="form-label">IP Service</label>
+            <label class="form-label" for="f-ipService">IP Service</label>
             <input class="form-input" id="f-ipService" placeholder="https://ip.example.com" value="${esc(d.ipService||'')}">
           </div>
           <div class="form-group full">
-            <label class="form-label">WebRTC ICE Servers ${badge('ENT Tier1')}</label>
+            <label class="form-label" for="f-webrtcICE">WebRTC ICE Servers ${badge('ENT Tier1')}</label>
             <input class="form-input" id="f-webrtcICE" placeholder="google" value="${esc(d.webrtcICE||'google')}">
           </div>
         </div>
-        <div class="form-grid"><div class="form-group"><label class="form-label">Local DNS mode</label><select class="form-select" id="f-localDnsMode"><option value="default">Default</option><option value="local">Local</option><option value="custom">Custom</option></select></div><div class="form-group"><label class="form-label">Custom DNS servers</label><input class="form-input" id="f-localDnsServers" placeholder="1.1.1.1, 8.8.8.8" value="${esc(d.localDnsServers||'')}"></div></div>
+        <div class="form-grid"><div class="form-group"><label class="form-label" for="f-localDnsMode">Local DNS mode</label><select class="form-select" id="f-localDnsMode"><option value="default"${!d.localDnsMode||d.localDnsMode==='default'?' selected':''}>Default</option><option value="local"${d.localDnsMode==='local'?' selected':''}>Local</option><option value="custom"${d.localDnsMode==='custom'?' selected':''}>Custom</option></select></div><div class="form-group"><label class="form-label" for="f-localDnsServers">Custom DNS servers</label><input class="form-input" id="f-localDnsServers" placeholder="1.1.1.1, 8.8.8.8" value="${esc(d.localDnsServers||'')}"></div></div>
         ${renderToggle('f-portProtection', 'Port Protection', 'Protect local service ports.', d.portProtection===true, 'PRO')}
         ${renderToggle('f-networkInfoOverride', 'Network Info Override', 'Use profile navigator.connection values.', d.networkInfoOverride===true, null)}
         ${renderToggle('f-disableQuic', 'Disable QUIC', 'Use TCP proxy paths without HTTP/3.', d.disableQuic===true, null)}
@@ -1499,15 +1526,15 @@
         <div class="form-section-title">${I.shield} Browser Identity ${badge('ENT Tier2')}</div>
         <div class="form-grid">
           <div class="form-group full">
-            <label class="form-label">User Agent String</label>
+            <label class="form-label" for="f-userAgent">User Agent String</label>
             <input class="form-input font-mono" id="f-userAgent" placeholder="Leave blank to use profile default" value="${esc(d.userAgent||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">UA Full Version ${badge('ENT Tier2')}</label>
+            <label class="form-label" for="f-uaFullVersion">UA Full Version ${badge('ENT Tier2')}</label>
             <input class="form-input" id="f-uaFullVersion" placeholder="138.0.7204.92" value="${esc(d.uaFullVersion||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Brand Full Version ${badge('ENT Tier2')}</label>
+            <label class="form-label" for="f-brandFullVersion">Brand Full Version ${badge('ENT Tier2')}</label>
             <input class="form-input" id="f-brandFullVersion" placeholder="142.0.3595.65" value="${esc(d.brandFullVersion||'')}">
           </div>
         </div>
@@ -1516,29 +1543,29 @@
         <div class="form-section-title">${I.cpu} Custom User-Agent ${badge('ENT Tier3')}</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Platform</label>
+            <label class="form-label" for="f-platform">Platform</label>
             <select class="form-select" id="f-platform">
               <option value=""${!d.platform?' selected':''}>From Profile</option>
               ${['Windows','Android','macOS','Linux'].map(p=>`<option value="${p}"${d.platform===p?' selected':''}>${p}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Platform Version</label>
+            <label class="form-label" for="f-platformVersion">Platform Version</label>
             <input class="form-input" id="f-platformVersion" placeholder="10.0 / 13 / 14.0" value="${esc(d.platformVersion||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Device Model</label>
+            <label class="form-label" for="f-model">Device Model</label>
             <input class="form-input" id="f-model" placeholder="SM-G991B" value="${esc(d.model||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Architecture</label>
+            <label class="form-label" for="f-architecture">Architecture</label>
             <select class="form-select" id="f-architecture">
               <option value=""${!d.architecture?' selected':''}>From Profile</option>
               ${['x86','arm','arm64'].map(a=>`<option value="${a}"${d.architecture===a?' selected':''}>${a}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Bitness</label>
+            <label class="form-label" for="f-bitness">Bitness</label>
             <select class="form-select" id="f-bitness">
               <option value=""${!d.bitness?' selected':''}>From Profile</option>
               <option value="32"${d.bitness==='32'?' selected':''}>32-bit</option>
@@ -1546,7 +1573,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Mobile Device</label>
+            <label class="form-label" for="f-mobile">Mobile Device</label>
             <select class="form-select" id="f-mobile">
               <option value=""${d.mobile===undefined||d.mobile===''?' selected':''}>From Profile</option>
               <option value="true"${d.mobile===true||d.mobile==='true'?' selected':''}>Yes</option>
@@ -1564,35 +1591,35 @@
         <div class="form-section-title">${I.cpu} Display & Input</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Window Size</label>
+            <label class="form-label" for="f-windowSize">Window Size</label>
             <input class="form-input" id="f-windowSize" placeholder="real" value="${esc(d.windowSize||'real')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Screen Size</label>
+            <label class="form-label" for="f-screenSize">Screen Size</label>
             <input class="form-input" id="f-screenSize" placeholder="real" value="${esc(d.screenSize||'real')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Device Pixel Ratio</label>
+            <label class="form-label" for="f-dprMode">Device Pixel Ratio</label>
             <select class="form-select" id="f-dprMode">
               <option value=""${!d.dprMode?' selected':''}>Default</option>
               ${['profile','real','advanced'].map(o=>`<option value="${o}"${d.dprMode===o?' selected':''}>${o}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Orientation</label>
+            <label class="form-label" for="f-orientation">Orientation</label>
             <select class="form-select" id="f-orientation">
               ${['profile','landscape','portrait','landscape-primary','landscape-secondary','portrait-primary','portrait-secondary'].map(o=>`<option value="${o}"${d.orientation===o?' selected':''}>${o}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Keyboard</label>
+            <label class="form-label" for="f-keyboard">Keyboard</label>
             <select class="form-select" id="f-keyboard">
               <option value="profile"${d.keyboard==='profile'?' selected':''}>Profile (emulated)</option>
               <option value="real"${d.keyboard==='real'?' selected':''}>Real (system)</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Fonts</label>
+            <label class="form-label" for="f-fonts">Fonts</label>
             <select class="form-select" id="f-fonts">
               <option value="profile"${d.fonts==='profile'?' selected':''}>Profile (embedded)</option>
               <option value="expand"${d.fonts==='expand'?' selected':''}>Expand</option>
@@ -1606,7 +1633,7 @@
         <div class="form-section-title">${I.zap} Rendering & Media</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">WebGL</label>
+            <label class="form-label" for="f-webgl">WebGL</label>
             <select class="form-select" id="f-webgl">
               <option value="profile"${d.webgl==='profile'?' selected':''}>Profile</option>
               <option value="real"${d.webgl==='real'?' selected':''}>Real</option>
@@ -1614,7 +1641,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">WebGPU</label>
+            <label class="form-label" for="f-webgpu">WebGPU</label>
             <select class="form-select" id="f-webgpu">
               <option value="profile"${d.webgpu==='profile'?' selected':''}>Profile</option>
               <option value="real"${d.webgpu==='real'?' selected':''}>Real</option>
@@ -1622,7 +1649,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">WebRTC</label>
+            <label class="form-label" for="f-webrtc">WebRTC</label>
             <select class="form-select" id="f-webrtc">
               <option value="profile"${d.webrtc==='profile'?' selected':''}>Profile</option>
               <option value="real"${d.webrtc==='real'?' selected':''}>Real</option>
@@ -1630,21 +1657,21 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Media Devices</label>
+            <label class="form-label" for="f-mediaDevices">Media Devices</label>
             <select class="form-select" id="f-mediaDevices">
               <option value="profile"${d.mediaDevices==='profile'?' selected':''}>Profile</option>
               <option value="real"${d.mediaDevices==='real'?' selected':''}>Real</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Speech Voices</label>
+            <label class="form-label" for="f-speechVoices">Speech Voices</label>
             <select class="form-select" id="f-speechVoices">
               <option value="profile"${d.speechVoices==='profile'?' selected':''}>Profile</option>
               <option value="real"${d.speechVoices==='real'?' selected':''}>Real</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Media Types</label>
+            <label class="form-label" for="f-mediaTypes">Media Types</label>
             <select class="form-select" id="f-mediaTypes">
               <option value="expand"${d.mediaTypes==='expand'?' selected':''}>Expand</option>
               <option value="profile"${d.mediaTypes==='profile'?' selected':''}>Profile</option>
@@ -1678,27 +1705,27 @@
         <div class="form-section-title">${I.zap} Timing & Seeds ${badge('ENT Tier2')}</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">FPS</label>
+            <label class="form-label" for="f-fps">FPS</label>
             <input class="form-input" id="f-fps" placeholder="profile" value="${esc(d.fps||'profile')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Video FPS</label>
+            <label class="form-label" for="f-videoFps">Video FPS</label>
             <input class="form-input" id="f-videoFps" placeholder="30:real" value="${esc(d.videoFps||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Time Scale</label>
+            <label class="form-label" for="f-timeScale">Time Scale</label>
             <input class="form-input" id="f-timeScale" type="number" step="0.01" min="0.01" max="0.99" placeholder="0.92" value="${esc(d.timeScale||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Noise Seed</label>
+            <label class="form-label" for="f-noiseSeed">Noise Seed</label>
             <input class="form-input" id="f-noiseSeed" type="number" placeholder="42" value="${esc(d.noiseSeed||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Time Seed</label>
+            <label class="form-label" for="f-timeSeed">Time Seed</label>
             <input class="form-input" id="f-timeSeed" type="number" placeholder="0" value="${esc(d.timeSeed||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Stack Seed</label>
+            <label class="form-label" for="f-stackSeed">Stack Seed</label>
             <input class="form-input" id="f-stackSeed" placeholder="profile" value="${esc(d.stackSeed||'profile')}">
           </div>
         </div>
@@ -1706,7 +1733,7 @@
       <div class="form-section">
         <div class="form-section-title">${I.info} History</div>
         <div class="form-group full">
-          <label class="form-label">Inject Random History ${badge('PRO')}</label>
+          <label class="form-label" for="f-injectRandomHistory">Inject Random History ${badge('PRO')}</label>
           <input class="form-input" id="f-injectRandomHistory" placeholder="false" value="${esc(d.injectRandomHistory||'')}">
         </div>
       </div>
@@ -1718,11 +1745,11 @@
       <div class="form-section">
         <div class="form-section-title">${I.cookie} Cookies & Bookmarks</div>
         <div class="form-group full">
-          <label class="form-label">Cookies ${badge('PRO')}</label>
+          <label class="form-label" for="f-cookies">Cookies ${badge('PRO')}</label>
           <textarea class="form-textarea" id="f-cookies" rows="4" placeholder='[{"url":"https://example.com","name":"session","value":"abc","domain":".example.com"}] or @/path/to/cookies.json'>${esc(d.cookies||'')}</textarea><button type="button" class="btn btn-secondary btn-sm" data-action="browse-profile-json" data-target="f-cookies">Choose local JSON</button>
         </div>
         <div class="form-group full">
-          <label class="form-label">Bookmarks</label>
+          <label class="form-label" for="f-bookmarks">Bookmarks</label>
           <textarea class="form-textarea" id="f-bookmarks" rows="3" placeholder='[{"title":"Example","type":"url","url":"https://example.com"}]'>${esc(d.bookmarks||'')}</textarea><button type="button" class="btn btn-secondary btn-sm" data-action="browse-profile-json" data-target="f-bookmarks">Choose local JSON</button>
         </div>
       </div>
@@ -1730,11 +1757,11 @@
         <div class="form-section-title">${I.network} Mirror Mode ${badge('ENT Tier3')}</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Mirror Controller Endpoint</label>
+            <label class="form-label" for="f-mirrorController">Mirror Controller Endpoint</label>
             <input class="form-input" id="f-mirrorController" placeholder="host:port" value="${esc(d.mirrorController||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Mirror Client Endpoint</label>
+            <label class="form-label" for="f-mirrorClient">Mirror Client Endpoint</label>
             <input class="form-input" id="f-mirrorClient" placeholder="host:port" value="${esc(d.mirrorClient||'')}">
           </div>
         </div>
@@ -1748,11 +1775,11 @@
         <div class="form-section-title">${I.cpu} Debug & Automation</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Remote Debugging Port</label>
+            <label class="form-label" for="f-remoteDebuggingPort">Remote Debugging Port</label>
             <input class="form-input" id="f-remoteDebuggingPort" type="number" placeholder="9222" value="${esc(d.remoteDebuggingPort||'')}">
           </div>
           <div class="form-group">
-            <label class="form-label">Bot Script</label>
+            <label class="form-label" for="f-botScript">Bot Script</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-botScript" placeholder="/path/to/script.js" value="${esc(d.botScript||'')}">
               <button class="btn btn-secondary btn-sm" data-action="browse-file" data-target="f-botScript" data-filter="js">Browse</button>
@@ -1764,24 +1791,24 @@
       <div class="form-section">
         <div class="form-section-title">${I.zap} Forensics & Memory</div>
         <div class="form-grid">
-          <div class="form-group"><label class="form-label">V8 Log</label><select class="form-select" id="f-v8Log"><option value="none"${d.v8Log==='none'||!d.v8Log?' selected':''}>None</option><option value="sample"${d.v8Log==='sample'?' selected':''}>Sample</option><option value="full"${d.v8Log==='full'?' selected':''}>Full</option></select></div>
-          <div class="form-group"><label class="form-label">V8 Log Directory</label><input class="form-input font-mono" id="f-v8LogDir" value="${esc(d.v8LogDir||'')}"></div>
-          <div class="form-group"><label class="form-label">JS Heap Limit</label><input class="form-input" id="f-jsHeapSizeLimit" placeholder="profile / real / bytes" value="${esc(d.jsHeapSizeLimit||'')}"></div>
-          <div class="form-group"><label class="form-label">Storage Quota</label><input class="form-input" id="f-storageQuota" placeholder="profile / real / bytes" value="${esc(d.storageQuota||'')}"></div>
+          <div class="form-group"><label class="form-label" for="f-v8Log">V8 Log</label><select class="form-select" id="f-v8Log"><option value="none"${d.v8Log==='none'||!d.v8Log?' selected':''}>None</option><option value="sample"${d.v8Log==='sample'?' selected':''}>Sample</option><option value="full"${d.v8Log==='full'?' selected':''}>Full</option></select></div>
+          <div class="form-group"><label class="form-label" for="f-v8LogDir">V8 Log Directory</label><input class="form-input font-mono" id="f-v8LogDir" value="${esc(d.v8LogDir||'')}"></div>
+          <div class="form-group"><label class="form-label" for="f-jsHeapSizeLimit">JS Heap Limit</label><input class="form-input" id="f-jsHeapSizeLimit" placeholder="profile / real / bytes" value="${esc(d.jsHeapSizeLimit||'')}"></div>
+          <div class="form-group"><label class="form-label" for="f-storageQuota">Storage Quota</label><input class="form-input" id="f-storageQuota" placeholder="profile / real / bytes" value="${esc(d.storageQuota||'')}"></div>
         </div>
       </div>
       <div class="form-section">
         <div class="form-section-title">${I.zap} Recording</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Canvas Record File</label>
+            <label class="form-label" for="f-canvasRecordFile">Canvas Record File</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-canvasRecordFile" placeholder="/tmp/canvaslab.jsonl" value="${esc(d.canvasRecordFile||'')}">
               <button class="btn btn-secondary btn-sm" data-action="browse-file" data-target="f-canvasRecordFile" data-filter="jsonl">Browse</button>
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">Audio Record File</label>
+            <label class="form-label" for="f-audioRecordFile">Audio Record File</label>
             <div class="input-with-btn">
               <input class="form-input font-mono" id="f-audioRecordFile" placeholder="/tmp/audiolab.jsonl" value="${esc(d.audioRecordFile||'')}">
               <button class="btn btn-secondary btn-sm" data-action="browse-file" data-target="f-audioRecordFile" data-filter="jsonl">Browse</button>
@@ -1819,12 +1846,20 @@
   }
 
   function addCustomHeader() {
-    customHeadersState['X-Custom-Header'] = '';
+    customHeadersState = readCustomHeaders();
+    let key = 'X-Custom-Header';
+    let suffix = 2;
+    while (Object.prototype.hasOwnProperty.call(customHeadersState, key)) key = `X-Custom-Header-${suffix++}`;
+    customHeadersState[key] = '';
     rebuildCustomHeadersDOM();
   }
 
   function removeCustomHeader(key) {
-    delete customHeadersState[key];
+    const row = [...document.querySelectorAll('.custom-header-row')].find(item =>
+      item.querySelector('[data-action="remove-header"]')?.dataset.key === key);
+    const currentKey = row?.querySelector('input')?.value?.trim() || key;
+    customHeadersState = readCustomHeaders();
+    delete customHeadersState[currentKey];
     rebuildCustomHeadersDOM();
   }
 
@@ -2052,6 +2087,12 @@
     document.querySelectorAll('.context-menu').forEach(m => m.remove());
     const menu = document.createElement('div');
     menu.className = 'context-menu';
+    menu.setAttribute('role', 'menu');
+    const trigger = e.target.closest('button');
+    menu.addEventListener('click', event => {
+      if (!event.target.closest('[data-action]')) return;
+      queueMicrotask(() => { menu.remove(); if (document.activeElement === document.body) trigger?.focus(); });
+    });
     const isRunning = runningSessions.some(s => s.profileId === profileId);
     menu.innerHTML = `
       <div class="context-menu-item" data-action="${isRunning?'stop-profile':'launch-profile'}" data-id="${profileId}">${isRunning?I.stop+' Stop':I.play+' Launch'}</div>
@@ -2063,7 +2104,20 @@
       <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" data-action="delete-profile" data-id="${profileId}">${I.trash} Delete</div>
     `;
+    menu.querySelectorAll(".context-menu-item").forEach(item => { item.tabIndex = 0; item.setAttribute("role", "menuitem"); });
+    menu.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.target.click(); }
+      const items = [...menu.querySelectorAll(".context-menu-item")];
+      const index = items.indexOf(document.activeElement);
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        items[(index + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+      }
+      if (ev.key === "Home" || ev.key === "End") { ev.preventDefault(); items[ev.key === "Home" ? 0 : items.length - 1]?.focus(); }
+      if (ev.key === "Escape") { ev.preventDefault(); menu.remove(); e.target.closest("button")?.focus(); }
+    });
     document.body.appendChild(menu);
+    menu.querySelector(".context-menu-item")?.focus();
     const rect = e.target.getBoundingClientRect();
     let x = rect.right, y = rect.bottom;
     if (x + 200 > window.innerWidth) x = rect.left - 200;
@@ -2233,11 +2287,11 @@
       window.api.kernel.getCapabilities(),
     ]);
     if (releases.status === 'fulfilled') kernelReleases = releases.value;
-    else kernelFetchError = `Could not refresh releases: ${releases.reason?.message || releases.reason}`;
+    else kernelFetchError = 'Could not refresh kernel releases. Check your connection and retry.';
     if (installed.status === 'fulfilled') kernelInstalled = installed.value;
-    else kernelFetchError += `${kernelFetchError ? ' ' : ''}Could not read installed kernels: ${installed.reason?.message || installed.reason}`;
+    else kernelFetchError += `${kernelFetchError ? ' ' : ''}Could not read installed kernels. Restart Control and retry.`;
     if (capabilities.status === 'fulfilled') kernelCapabilities = capabilities.value;
-    else if (!kernelFetchError) kernelFetchError = `Could not check install support: ${capabilities.reason?.message || capabilities.reason}`;
+    else if (!kernelFetchError) kernelFetchError = 'Could not check kernel installation support. Restart Control and retry.';
     kernelFetching = false;
     if (currentView === 'kernels') renderKernels();
   }
