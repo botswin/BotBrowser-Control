@@ -1187,6 +1187,106 @@ test('macOS ZIP update extraction preserves the app bundle install unit', async 
   }
 });
 
+test('POSIX ZIP extraction preserves safe app symlinks and executable permissions', async () => {
+  test.skip(process.platform === 'win32', 'POSIX ZIP permission and symlink contract');
+  const { extractUpdatePackage } = require('../src/main/update-apply');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-update-zip-posix-'));
+  const writeArchive = async (filePath, records) => {
+    const zip = new JSZip();
+    for (const [name, contents, unixPermissions] of records) zip.file(name, contents, { unixPermissions, createFolders: false });
+    fs.writeFileSync(filePath, await zip.generateAsync({ type: 'nodebuffer', platform: 'UNIX' }));
+  };
+  const rejectArchive = async (name, records, version) => {
+    const packagePath = path.join(root, `${name}.zip`);
+    const stagingRoot = path.join(root, `${name}-stage`);
+    await writeArchive(packagePath, records);
+    await expect(extractUpdatePackage(packagePath, stagingRoot, version, 'helper'))
+      .rejects.toThrow(/Invalid update archive/);
+    expect(fs.existsSync(path.join(stagingRoot, `.${version}.dist.part`))).toBe(false);
+  };
+  try {
+    const packagePath = path.join(root, 'valid.zip');
+    const helperName = 'App.app/Contents/Helpers/helper';
+    await writeArchive(packagePath, [
+      ['App.app/Contents/Frameworks/Foo.framework/Versions/A/Foo', 'framework', 0o100755],
+      ['App.app/Contents/Frameworks/Foo.framework/Versions/Current', 'A', 0o120755],
+      ['App.app/Contents/Frameworks/Foo.framework/Versions/ParentCurrent', '../Versions/A', 0o120755],
+      [helperName, 'helper', 0o100755],
+      ['App.app/Contents/Resources/Info.plist', 'plist', 0o100644],
+    ]);
+    const extracted = await extractUpdatePackage(packagePath, path.join(root, 'valid-stage'), '5.0.4', 'helper');
+    const bundle = path.join(extracted.stagedDir, 'App.app');
+    const current = path.join(bundle, 'Contents/Frameworks/Foo.framework/Versions/Current');
+    expect(fs.lstatSync(current).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(current)).toBe('A');
+    expect(fs.readFileSync(path.join(current, 'Foo'), 'utf8')).toBe('framework');
+    expect(fs.readFileSync(path.join(path.dirname(current), 'ParentCurrent', 'Foo'), 'utf8')).toBe('framework');
+    expect(fs.statSync(extracted.executablePath).mode & 0o777).toBe(0o755);
+    expect(fs.statSync(path.join(bundle, 'Contents/Resources/Info.plist')).mode & 0o777).toBe(0o644);
+
+    await rejectArchive('escape', [['App/Link', '../../outside', 0o120777]], '5.0.5');
+    await rejectArchive('absolute', [['App/Link', '/tmp/outside', 0o120777]], '5.0.6');
+    await rejectArchive('link-parent', [
+      ['App/Link', 'Real', 0o120777],
+      ['App/Link/payload', 'blocked', 0o100644],
+    ], '5.0.7');
+    await rejectArchive('cycle', [
+      ['App/A', 'B', 0o120777],
+      ['App/B', 'A', 0o120777],
+    ], '5.0.8');
+    await rejectArchive('duplicate', [
+      ['App/file', 'first', 0o100644],
+      ['App/./file', 'second', 0o100644],
+    ], '5.0.9');
+
+    const traversalOutside = path.join(root, 'traversal-outside');
+    const traversalSentinel = path.join(traversalOutside, 'sentinel');
+    const traversalArchive = path.join(root, 'traversal.zip');
+    fs.mkdirSync(traversalOutside);
+    fs.writeFileSync(traversalSentinel, 'unchanged');
+    await writeArchive(traversalArchive, [
+      ['../../traversal-outside/sentinel', 'overwritten', 0o100644],
+      [helperName, 'helper', 0o100755],
+    ]);
+    await expect(extractUpdatePackage(traversalArchive, path.join(root, 'traversal-stage'), '5.0.11', 'helper'))
+      .rejects.toThrow(/Invalid update archive/);
+    expect(fs.readFileSync(traversalSentinel, 'utf8')).toBe('unchanged');
+
+    const chainedStage = path.join(root, 'chained-stage');
+    const chainedOutside = path.join(chainedStage, 'outside');
+    const chainedSentinel = path.join(chainedOutside, 'sentinel');
+    const chainedArchive = path.join(root, 'chained.zip');
+    fs.mkdirSync(chainedOutside, { recursive: true });
+    fs.mkdirSync(chainedStage, { recursive: true });
+    fs.writeFileSync(chainedSentinel, 'unchanged');
+    await writeArchive(chainedArchive, [
+      ['A', '.', 0o120777],
+      ['B', 'A/../outside/sentinel', 0o120777],
+      ['outside/sentinel', 'lexically-inside', 0o100644],
+      [helperName, 'helper', 0o100755],
+    ]);
+    await expect(extractUpdatePackage(chainedArchive, chainedStage, '5.0.12', 'helper'))
+      .rejects.toThrow(/Invalid update archive/);
+    expect(fs.readFileSync(chainedSentinel, 'utf8')).toBe('unchanged');
+
+    const outsideDir = path.join(root, 'outside');
+    const sentinel = path.join(outsideDir, 'sentinel');
+    const preexistingStage = path.join(root, 'preexisting-stage');
+    const preexistingPartial = path.join(preexistingStage, '.5.0.10.dist.part');
+    const preexistingArchive = path.join(root, 'preexisting.zip');
+    fs.mkdirSync(outsideDir);
+    fs.mkdirSync(preexistingStage);
+    fs.writeFileSync(sentinel, 'unchanged');
+    fs.symlinkSync(outsideDir, preexistingPartial, 'dir');
+    await writeArchive(preexistingArchive, [['sentinel', 'overwritten', 0o100644]]);
+    await expect(extractUpdatePackage(preexistingArchive, preexistingStage, '5.0.10', 'helper')).rejects.toThrow();
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('unchanged');
+    expect(fs.lstatSync(preexistingPartial).isSymbolicLink()).toBe(true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Windows swap script executes an atomic temp-directory transaction', () => {
   test.skip(process.platform !== 'win32', 'Windows-only owner test');
   const { createWindowsSwapScript } = require('../src/main/update-apply');

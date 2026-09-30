@@ -99,16 +99,116 @@ async function extractUpdatePackage(packagePath, stagingRoot, version, executabl
   const target = path.join(stagingRoot, `${version}.dist`);
   if (fs.existsSync(target)) return { stagedDir: target, executablePath: findExecutable(target, executableName) };
   const zip = await JSZip.loadAsync(fs.readFileSync(packagePath));
-  fs.mkdirSync(partial, { recursive: true });
+  fs.mkdirSync(partial);
   try {
+    const entries = [];
+    const destinations = new Set();
+    const links = new Map();
+    const insidePartial = candidate => candidate === partial || candidate.startsWith(`${partial}${path.sep}`);
+    if (fs.lstatSync(partial).isSymbolicLink()) throw new Error('Invalid update archive: staging directory is a symlink');
+    const pathKey = candidate => process.platform === 'win32' || process.platform === 'darwin' ? candidate.toLowerCase() : candidate;
+    const assertNoSymlinkAncestors = destination => {
+      let ancestor = destination;
+      while (ancestor !== partial && insidePartial(ancestor)) {
+        try {
+          if (fs.lstatSync(ancestor).isSymbolicLink()) throw new Error('Invalid update archive: symlink ancestor');
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+        ancestor = path.dirname(ancestor);
+      }
+      if (!insidePartial(destination) || !insidePartial(ancestor)) throw new Error('Invalid update archive');
+    };
+
     for (const [entryName, entry] of Object.entries(zip.files)) {
+      const originalName = typeof entry.unsafeOriginalName === 'string' ? entry.unsafeOriginalName : entryName;
+      const normalizedOriginal = originalName.replace(/\\/g, '/');
       const normalized = entryName.replace(/\\/g, '/');
-      if (!normalized || normalized.includes('..') || normalized.startsWith('/')) throw new Error('Invalid update archive');
+      const comparableOriginal = entry.dir ? normalizedOriginal.replace(/\/+$/, '') : normalizedOriginal;
+      const comparableEntry = entry.dir ? normalized.replace(/\/+$/, '') : normalized;
+      if (!comparableOriginal || comparableOriginal.includes('\0') || path.posix.isAbsolute(comparableOriginal) ||
+          path.win32.isAbsolute(comparableOriginal) || comparableOriginal.split('/').some(part => part === '.' || part === '..') ||
+          comparableOriginal !== comparableEntry || !normalized || normalized.includes('..') || normalized.startsWith('/')) {
+        throw new Error('Invalid update archive');
+      }
       const destination = path.resolve(partial, normalized);
       if (destination !== partial && !destination.startsWith(`${partial}${path.sep}`)) throw new Error('Invalid update archive');
-      if (entry.dir) fs.mkdirSync(destination, { recursive: true });
-      else { fs.mkdirSync(path.dirname(destination), { recursive: true }); fs.writeFileSync(destination, await entry.async('nodebuffer')); }
+      const destinationKey = pathKey(destination);
+      if (destinations.has(destinationKey)) throw new Error('Invalid update archive: duplicate entry');
+      destinations.add(destinationKey);
+      const mode = Number.isInteger(entry.unixPermissions) ? entry.unixPermissions : null;
+      const isSymlink = mode !== null && (mode & 0o170000) === 0o120000;
+      if (isSymlink && (process.platform === 'win32' || entry.dir)) throw new Error('Invalid update archive: unsupported symlink');
+      const record = { entry, destination, mode, isSymlink };
+      if (isSymlink) {
+        const target = await entry.async('string');
+        if (!target || target.includes('\0') || path.isAbsolute(target) || path.win32.isAbsolute(target)) throw new Error('Invalid update archive: invalid symlink target');
+        record.target = target;
+        links.set(destinationKey, record);
+      }
+      entries.push(record);
     }
+
+    for (const record of entries) {
+      let ancestor = path.dirname(record.destination);
+      while (ancestor !== partial && insidePartial(ancestor)) {
+        if (links.has(pathKey(ancestor))) throw new Error('Invalid update archive: entry below symlink');
+        ancestor = path.dirname(ancestor);
+      }
+    }
+
+    for (const record of entries) {
+      if (record.isSymlink) continue;
+      assertNoSymlinkAncestors(record.destination);
+      if (record.entry.dir) fs.mkdirSync(record.destination, { recursive: true });
+    }
+    for (const record of entries) {
+      if (record.isSymlink || record.entry.dir) continue;
+      assertNoSymlinkAncestors(record.destination);
+      fs.mkdirSync(path.dirname(record.destination), { recursive: true });
+      fs.writeFileSync(record.destination, await record.entry.async('nodebuffer'));
+      if (process.platform !== 'win32' && record.mode !== null) fs.chmodSync(record.destination, record.mode & 0o777);
+    }
+
+    const resolveLinkTarget = (record, visited = new Set()) => {
+      const recordKey = pathKey(record.destination);
+      if (visited.has(recordKey)) throw new Error('Invalid update archive: symlink cycle');
+      const active = new Set(visited);
+      active.add(recordKey);
+      const components = path.relative(partial, path.dirname(record.destination)).split(path.sep).filter(Boolean);
+      for (const component of record.target.split(path.sep)) {
+        if (!component || component === '.') continue;
+        if (component === '..') {
+          if (!components.length) throw new Error('Invalid update archive: symlink target escapes staging directory');
+          components.pop();
+          continue;
+        }
+        components.push(component);
+        const candidate = path.join(partial, ...components);
+        if (!insidePartial(candidate)) throw new Error('Invalid update archive: symlink target escapes staging directory');
+        const linked = links.get(pathKey(candidate));
+        if (linked) {
+          const linkedKey = pathKey(candidate);
+          if (active.has(linkedKey)) throw new Error('Invalid update archive: symlink cycle');
+          components.pop();
+          const expanded = resolveLinkTarget(linked, active);
+          if (!insidePartial(expanded)) throw new Error('Invalid update archive: symlink target escapes staging directory');
+          components.splice(0, components.length, ...path.relative(partial, expanded).split(path.sep).filter(Boolean));
+        }
+      }
+      const resolved = path.join(partial, ...components);
+      if (!insidePartial(resolved)) throw new Error('Invalid update archive: symlink target escapes staging directory');
+      return resolved;
+    };
+    for (const record of links.values()) {
+      const target = resolveLinkTarget(record);
+      if (!fs.existsSync(target)) throw new Error('Invalid update archive: symlink target is missing');
+    }
+    for (const record of links.values()) {
+      assertNoSymlinkAncestors(record.destination);
+      fs.symlinkSync(record.target, record.destination);
+    }
+
     const executablePath = findExecutable(partial, executableName);
     if (!executablePath) throw new Error('Update archive is missing the application executable');
     fs.renameSync(partial, target);
