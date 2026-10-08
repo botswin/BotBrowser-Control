@@ -329,7 +329,8 @@
     banner.innerHTML = `
       <span class="update-banner-icon">${I.bell}</span>
       <span class="update-banner-text">${parts.join(' &nbsp;·&nbsp; ')}</span>
-      ${showControl ? controlAction : '<button class="btn btn-primary btn-sm" data-action="open-control-releases">Release page</button>'}
+      ${info.newKernel && info.kernel ? '<button class="btn btn-primary btn-sm" data-action="open-kernel-releases">Kernel release</button>' : ''}
+      ${showControl ? controlAction : ''}
       <button class="btn btn-ghost btn-sm" data-action="dismiss-update-banner" title="Dismiss">${I.close}</button>
     `;
     banner.classList.add('compact-update-notice');
@@ -373,6 +374,7 @@
       if (action === 'stage-control-update') { stageControlUpdate(); return; }
       if (action === 'apply-control-update') { applyControlUpdate(); return; }
       if (action === 'open-control-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases'); return; }
+      if (action === 'open-kernel-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser/releases'); return; }
       if (action === 'browse-profile-json') { browseFile(data.target, 'json'); return; }
       if (action === 'dismiss-update-banner') { document.getElementById('update-banner')?.remove(); return; }
       handleAction(action, data, e);

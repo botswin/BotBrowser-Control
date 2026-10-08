@@ -4,6 +4,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+test('kernel release buttons cannot target Control releases', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/renderer/js/app.js'), 'utf8');
+  expect(source).toContain("${info.newKernel && info.kernel ? '<button class=\"btn btn-primary btn-sm\" data-action=\"open-kernel-releases\">Kernel release</button>' : ''}");
+  expect(source).toContain("if (action === 'open-kernel-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser/releases'); return; }");
+  expect(source).toContain("if (action === 'open-control-releases') { window.api.shell.openPath('https://github.com/botswin/BotBrowser-Control/releases'); return; }");
+});
+
 test('checks application updates at startup and again on the periodic timer', async () => {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-update-timer-'));
   let app;
