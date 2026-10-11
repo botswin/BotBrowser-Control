@@ -256,7 +256,7 @@ ipcMain.handle('profiles:importZip', async (_, source) => {
   return { count: created.length, profiles: created };
 });
 
-const CSV_FIELDS = ['name', 'group', 'description', 'startUrl', 'proxyServer', 'proxyIp', 'proxyBypassRgx', 'userAgent', 'locale', 'timezone', 'platform', 'platformVersion', 'notes'];
+const CSV_FIELDS = ['name', 'group', 'description', 'startUrl', 'proxyServer', 'proxyIp', 'proxyBypassRgx', 'userAgent', 'locale', 'timezone', 'platform', 'platformVersion', 'performanceTiming', 'widevine', 'notes'];
 ipcMain.handle('profiles:exportCsv', (_, { ids, destination }) => {
   if (!destination || !path.isAbsolute(destination)) throw new Error('Invalid export path');
   const selected = store.get('profiles', []).filter(profile => !ids?.length || ids.includes(profile.id));
@@ -1761,6 +1761,9 @@ function buildLaunchArgs(profile, userDataDir, botProfileArg) {
   }
 
   if (profile.botScript) args.push(`--bot-script=${profile.botScript}`);
+
+  if (['false', 'basic', 'advanced'].includes(profile.performanceTiming)) args.push(`--bot-performance-timing=${profile.performanceTiming}`);
+  if (['stub', 'send', 'block', 'no-cdm'].includes(profile.widevine)) args.push(`--bot-widevine=${profile.widevine}`);
 
   if (profile.remoteDebuggingPort) args.push(`--remote-debugging-port=${profile.remoteDebuggingPort}`);
 

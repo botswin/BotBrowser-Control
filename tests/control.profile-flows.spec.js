@@ -583,6 +583,8 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     v8LogDir: 'C:\\logs',
     jsHeapSizeLimit: 33554432,
     storageQuota: 'real',
+    performanceTiming: 'advanced',
+    widevine: 'send',
     startUrl: 'https://example.test/profile-start'
   }));
   const userDataDir = path.join(oldSettings.defaultUserDataDir, profile.id, 'user-data-dir');
@@ -606,6 +608,8 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     expect(started.args).toContain('--bot-v8-log-dir=C:\\logs');
     expect(started.args).toContain('--bot-js-heap-size-limit=33554432');
     expect(started.args).toContain('--bot-storage-quota=real');
+    expect(started.args).toContain('--bot-performance-timing=advanced');
+    expect(started.args).toContain('--bot-widevine=send');
     expect(started.args).toContain('--bot-cookies=[{"name":"sid","value":"fixture"}]');
     expect(started.args).toContain('--remote-debugging-port=9333');
     expect(started.args).toContain('https://example.test/profile-start');
@@ -615,13 +619,15 @@ test('browser launch maps saved profile proxy, cookies, CDP port, and start URL 
     fs.mkdirSync(userDataDir, { recursive: true });
     const savedCookiesPath = path.join(userDataDir, 'saved-cookies.json');
     fs.writeFileSync(savedCookiesPath, '[{"name":"restored","value":"fixture"}]');
-    await page.evaluate(id => window.api.profiles.update(id, { cookies: '' }), profile.id);
+    await page.evaluate(id => window.api.profiles.update(id, { cookies: '', performanceTiming: 'unknown', widevine: 'unknown' }), profile.id);
     const restoredStop = page.evaluate(id => new Promise(resolve => {
       const off = window.api.on('instance:stopped', event => {
         if (event.profileId === id) { off(); resolve(); }
       });
     }), profile.id);
     const restored = await page.evaluate(id => window.api.browser.launch(id), profile.id);
+    expect(restored.args.some(arg => arg.startsWith('--bot-performance-timing='))).toBe(false);
+    expect(restored.args.some(arg => arg.startsWith('--bot-widevine='))).toBe(false);
     expect(restored.args).toContain(`--bot-cookies=@${savedCookiesPath}`);
     await page.evaluate(id => window.api.browser.stop(id), profile.id);
     expect(await Promise.race([restoredStop.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 5000))])).toBe(true);
@@ -805,16 +811,17 @@ test('profile ZIP export/import round-trips safe fields and rejects corrupt arch
   const profile = await page.evaluate(() => window.api.profiles.create({ name: `Zip profile ${Date.now()}`, startUrl: 'https://example.test', cookies: '[{"name":"secret"}]' }));
   const archive = path.join(os.tmpdir(), `botbrowser-profile-${Date.now()}.zip`);
   try {
+    await page.evaluate(id => window.api.profiles.update(id, { performanceTiming: 'basic', widevine: 'no-cdm' }), profile.id);
     const exported = await page.evaluate(({ id, destination }) => window.api.profiles.exportZip({ ids: [id], destination }), { id: profile.id, destination: archive });
     expect(exported.count).toBe(1);
     const zip = await JSZip.loadAsync(fs.readFileSync(archive));
     const payload = JSON.parse(await zip.file('profiles.json').async('string'))[0];
-    expect(payload).toMatchObject({ name: profile.name, startUrl: profile.startUrl });
+    expect(payload).toMatchObject({ name: profile.name, startUrl: profile.startUrl, performanceTiming: 'basic', widevine: 'no-cdm' });
     expect(payload.cookies).toBeUndefined();
     await page.evaluate(id => window.api.profiles.delete(id), profile.id);
     const imported = await page.evaluate(source => window.api.profiles.importZip(source), archive);
     expect(imported.count).toBe(1);
-    expect(imported.profiles[0]).toMatchObject({ name: profile.name, startUrl: profile.startUrl, status: 'stopped' });
+    expect(imported.profiles[0]).toMatchObject({ name: profile.name, startUrl: profile.startUrl, performanceTiming: 'basic', widevine: 'no-cdm', status: 'stopped' });
     const corrupt = path.join(os.tmpdir(), `botbrowser-corrupt-${Date.now()}.zip`);
     fs.writeFileSync(corrupt, 'not a zip');
     await expect(page.evaluate(source => window.api.profiles.importZip(source), corrupt)).rejects.toThrow();
@@ -882,6 +889,7 @@ test('profile CSV round-trips quoted fields and excludes sensitive data', async 
   const profile = await page.evaluate(() => window.api.profiles.create({ name: `CSV, profile\n${Date.now()}`, startUrl: 'https://example.test/?a=1,2', proxyServer: 'http://proxy.example:80', cookies: '[{"name":"secret"}]' }));
   const csvPath = path.join(os.tmpdir(), `botbrowser-profile-${Date.now()}.csv`);
   try {
+    await page.evaluate(id => window.api.profiles.update(id, { performanceTiming: 'advanced', widevine: 'block' }), profile.id);
     await page.evaluate(({ id, destination }) => window.api.profiles.exportCsv({ ids: [id], destination }), { id: profile.id, destination: csvPath });
     const csv = fs.readFileSync(csvPath, 'utf8');
     expect(csv).not.toContain('secret');
@@ -889,7 +897,7 @@ test('profile CSV round-trips quoted fields and excludes sensitive data', async 
     await page.evaluate(id => window.api.profiles.delete(id), profile.id);
     const imported = await page.evaluate(source => window.api.profiles.importCsv(source), csvPath);
     expect(imported.count).toBe(1);
-    expect(imported.profiles[0]).toMatchObject({ startUrl: profile.startUrl, proxyServer: profile.proxyServer });
+    expect(imported.profiles[0]).toMatchObject({ startUrl: profile.startUrl, proxyServer: profile.proxyServer, performanceTiming: 'advanced', widevine: 'block' });
   } finally {
     for (const item of await page.evaluate(() => window.api.profiles.getAll())) if (item.name.startsWith('CSV, profile')) await page.evaluate(id => window.api.profiles.delete(id), item.id);
     fs.rmSync(csvPath, { force: true });
@@ -912,6 +920,8 @@ test('warmup launch adds an ephemeral CDP port without changing profile settings
   try {
     await page.evaluate(path => window.api.settings.set({ botBrowserPath: path }), process.execPath);
     const started = await page.evaluate(id => window.api.browser.launch(id, { warmup: true }), profile.id);
+    expect(started.args.some(arg => arg.startsWith('--bot-performance-timing='))).toBe(false);
+    expect(started.args.some(arg => arg.startsWith('--bot-widevine='))).toBe(false);
     const portArg = started.args.find(arg => arg.startsWith('--remote-debugging-port='));
     expect(Number(portArg?.split('=')[1])).toBeGreaterThan(0);
     expect((await page.evaluate(id => window.api.profiles.getAll().then(items => items.find(item => item.id === id)), profile.id)).remoteDebuggingPort).toBeFalsy();

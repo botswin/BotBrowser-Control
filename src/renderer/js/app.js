@@ -1263,7 +1263,7 @@
       fingerprint: ['window size', 'screen size', 'device pixel ratio', 'orientation', 'keyboard', 'fonts', 'webgl', 'webgpu', 'webrtc', 'media devices', 'speech voices', 'media types', 'canvas noise', 'audio context noise', 'client rects noise', 'text rects noise'],
       behavior: ['disable debugger', 'disable console messages', 'always active', 'mobile force touch', 'fps', 'time scale', 'noise seed', 'time seed', 'stack seed', 'inject random history'],
       session: ['cookies', 'bookmarks', 'mirror controller endpoint', 'mirror client endpoint'],
-      advanced: ['remote debugging port', 'bot script', 'gpu emulation', 'canvas record file', 'audio record file'],
+      advanced: ['remote debugging port', 'bot script', 'gpu emulation', 'canvas record file', 'audio record file', 'performance timing', 'widevine'],
     };
     tabs.forEach(tab => { tab.keywords = tabKeywords[tab.id]; });
     editorTabs = tabs;
@@ -1366,6 +1366,7 @@
       fps: 'profile', videoFps: '', mirrorController: '', mirrorClient: '',
       canvasRecordFile: '', audioRecordFile: '', v8Log: 'none', v8LogDir: '', jsHeapSizeLimit: '', storageQuota: '',
       botScript: '', ipService: '', enableVariationsInContext: false,
+      performanceTiming: '', widevine: '',
       gpuEmulation: true,
     };
   }
@@ -1791,6 +1792,30 @@
         ${renderToggle('f-gpuEmulation', 'GPU Emulation', '', d.gpuEmulation!==false, 'ENT Tier2')}
       </div>
       <div class="form-section">
+        <div class="form-section-title">${I.zap} Media & Performance</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="f-performanceTiming">Performance Timing ${badge('ENT Tier3')}</label>
+            <select class="form-select" id="f-performanceTiming">
+              <option value=""${!d.performanceTiming ? ' selected' : ''}>Default (profile/kernel)</option>
+              <option value="false"${d.performanceTiming === 'false' ? ' selected' : ''}>Disabled</option>
+              <option value="basic"${d.performanceTiming === 'basic' ? ' selected' : ''}>Basic</option>
+              <option value="advanced"${d.performanceTiming === 'advanced' ? ' selected' : ''}>Advanced</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="f-widevine">Widevine ${badge('ENT Tier2')}</label>
+            <select class="form-select" id="f-widevine">
+              <option value=""${!d.widevine ? ' selected' : ''}>Default (profile/kernel)</option>
+              <option value="stub"${d.widevine === 'stub' ? ' selected' : ''}>Stub</option>
+              <option value="send"${d.widevine === 'send' ? ' selected' : ''}>Send</option>
+              <option value="block"${d.widevine === 'block' ? ' selected' : ''}>Block</option>
+              <option value="no-cdm"${d.widevine === 'no-cdm' ? ' selected' : ''}>No CDM</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
         <div class="form-section-title">${I.zap} Forensics & Memory</div>
         <div class="form-grid">
           <div class="form-group"><label class="form-label" for="f-v8Log">V8 Log</label><select class="form-select" id="f-v8Log"><option value="none"${d.v8Log==='none'||!d.v8Log?' selected':''}>None</option><option value="sample"${d.v8Log==='sample'?' selected':''}>Sample</option><option value="full"${d.v8Log==='full'?' selected':''}>Full</option></select></div>
@@ -2044,6 +2069,8 @@
       mirrorClient: val('f-mirrorClient'),
       remoteDebuggingPort: val('f-remoteDebuggingPort'),
       botScript: val('f-botScript'),
+      performanceTiming: selVal('f-performanceTiming'),
+      widevine: selVal('f-widevine'),
       gpuEmulation: chk('f-gpuEmulation'),
       canvasRecordFile: val('f-canvasRecordFile'),
       audioRecordFile: val('f-audioRecordFile'),

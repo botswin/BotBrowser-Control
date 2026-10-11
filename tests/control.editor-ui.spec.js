@@ -64,6 +64,11 @@ test('Settings and all editor tabs associate visible labels with focusable field
 });
 test('every editor field round-trips through actual save and reopen', async () => {
   await page.locator('[data-action="new-profile"]').first().click();
+  await page.locator('.editor-tab[data-tab="advanced"]').click();
+  await expect(page.locator('#f-performanceTiming')).toHaveValue('');
+  await expect(page.locator('#f-widevine')).toHaveValue('');
+  expect(await page.locator('#f-performanceTiming option').evaluateAll(options => options.map(option => option.value))).toEqual(['', 'false', 'basic', 'advanced']);
+  expect(await page.locator('#f-widevine option').evaluateAll(options => options.map(option => option.value))).toEqual(['', 'stub', 'send', 'block', 'no-cdm']);
   const values = {
     'f-name': 'All fields fixture', 'f-userAgent': 'Synthetic desktop fixture',
     'f-startUrl': 'https://example.test', 'f-warmupUrls': 'https://example.test/one',
@@ -75,6 +80,7 @@ test('every editor field round-trips through actual save and reopen', async () =
     'f-cookies': '[]', 'f-bookmarks': '[]', 'f-kernel': '',
     'f-platform': 'Windows', 'f-model': 'Synthetic model',
     'f-remoteDebuggingPort': '9222',
+    'f-performanceTiming': 'advanced', 'f-widevine': 'send',
   };
   for (const tab of ['general', 'network', 'identity', 'fingerprint', 'behavior', 'session', 'advanced']) {
     await page.locator('.editor-tab[data-tab="' + tab + '"]').click();
