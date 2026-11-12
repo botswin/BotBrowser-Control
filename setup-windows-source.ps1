@@ -15,6 +15,20 @@ $ExistingNodeDir = Join-Path $InstallDir 'node'
 $SkipLaunch = $env:CONTROL_SKIP_LAUNCH -eq '1'
 $SkipShortcuts = $env:CONTROL_SKIP_SHORTCUTS -eq '1'
 
+function Test-NodeRuntime([string]$NodePath, [string]$ExpectedVersion, [string]$ExpectedArch) {
+  if (-not (Test-Path $NodePath -PathType Leaf)) { return $false }
+  try {
+    $version = & $NodePath --version 2>$null
+    if ($LASTEXITCODE -ne 0 -or ([string]$version).Trim() -ne "v$ExpectedVersion") {
+      return $false
+    }
+    $architecture = & $NodePath -p process.arch 2>$null
+    return ($LASTEXITCODE -eq 0 -and ([string]$architecture).Trim() -eq $ExpectedArch)
+  } catch {
+    return $false
+  }
+}
+
 function Invoke-NpmWithHeartbeat([string[]]$Arguments, [string]$Phase, [string]$Description) {
   $watch = [Diagnostics.Stopwatch]::StartNew()
   $quotedArgs = ($Arguments | ForEach-Object { '"' + $_.Replace('"', '""') + '"' }) -join ' '
@@ -68,9 +82,7 @@ function Invoke-DownloadWithHeartbeat([string]$Uri, [string]$OutFile, [string]$P
 
 New-Item -ItemType Directory -Path $StageDir, $TempDir -Force | Out-Null
 try {
-  if ((Test-Path (Join-Path $ExistingNodeDir 'node.exe')) -and
-      ((& (Join-Path $ExistingNodeDir 'node.exe') --version).Trim() -eq "v$NodeVersion") -and
-      ((& (Join-Path $ExistingNodeDir 'node.exe') -p process.arch).Trim() -eq $Arch)) {
+  if (Test-NodeRuntime (Join-Path $ExistingNodeDir 'node.exe') $NodeVersion $Arch) {
     Write-Host '[1/6] Reusing verified Node.js from the current installation...'
     Copy-Item $ExistingNodeDir $NodeDir -Recurse
   } else {
